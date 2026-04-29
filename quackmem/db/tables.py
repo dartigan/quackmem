@@ -57,6 +57,8 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
         sa.Column("token_count", sa.Integer, nullable=True),
         sa.Column("status", sa.Text, nullable=False, server_default="pending"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("regeneration_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("metadata", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Index(f"{prefix}tracked_messages_metadata_gin", "metadata", postgresql_using="gin"),
         schema=schema,

@@ -29,4 +29,6 @@ class TrackedMessage(BaseModel):
     token_count: int | None = None
     status: MessageStatus = MessageStatus.completed
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime | None = None
+    regeneration_count: int = 0
     metadata: dict = Field(default_factory=dict)
