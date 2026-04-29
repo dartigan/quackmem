@@ -23,16 +23,16 @@ def get_url() -> str:
     Raises:
         RuntimeError: If no database URL is available
     """
-    url = os.environ.get("CONVO_TRACKER_DB_URL")
+    url = os.environ.get("QUACKMEM_DB_URL")
     if not url:
         try:
-            from convo_tracker.db.session import get_engine
+            from quackmem.db.session import get_engine
 
             engine = get_engine()
             url = str(engine.url)
         except Exception:
             raise RuntimeError(
-                "Set CONVO_TRACKER_DB_URL or call init_tracker() before running migrations"
+                "Set QUACKMEM_DB_URL or call init_tracker() before running migrations"
             )
     return url
 
@@ -45,7 +45,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        version_table="convo_tracker_alembic_version",
+        version_table="quackmem_alembic_version",
         version_table_schema=schema,
     )
     with context.begin_transaction():
@@ -58,7 +58,7 @@ def do_run_migrations(connection):
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        version_table="convo_tracker_alembic_version",
+        version_table="quackmem_alembic_version",
         version_table_schema=schema,
     )
     with context.begin_transaction():

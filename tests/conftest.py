@@ -1,4 +1,4 @@
-"""Shared fixtures for convo-tracker tests."""
+"""Shared fixtures for quackmem tests."""
 from __future__ import annotations
 
 import os
@@ -14,8 +14,8 @@ from uuid import uuid4
 
 @pytest.fixture
 def mock_backend():
-    """Mock PostgresBackend for unit tests that patch convo_tracker.backend.get_backend."""
-    with patch("convo_tracker.backend.get_backend") as mock_get:
+    """Mock PostgresBackend for unit tests that patch quackmem.backend.get_backend."""
+    with patch("quackmem.backend.get_backend") as mock_get:
         backend = MagicMock()
         backend.upsert_session = AsyncMock(return_value=None)
         backend.insert_message = AsyncMock(return_value=None)
@@ -27,18 +27,18 @@ def mock_backend():
 
 @pytest.fixture
 def sample_config():
-    from convo_tracker.core.config import TrackerConfig
+    from quackmem.core.config import TrackerConfig
     return TrackerConfig(
         database_url="postgresql+asyncpg://test:test@localhost/test",
     )
 
 
 # ---------------------------------------------------------------------------
-# Integration test helpers — require CONVO_TRACKER_TEST_DB_URL env var
+# Integration test helpers — require QUACKMEM_TEST_DB_URL env var
 # ---------------------------------------------------------------------------
 
-TEST_DB_URL = os.environ.get("CONVO_TRACKER_TEST_DB_URL")
+TEST_DB_URL = os.environ.get("QUACKMEM_TEST_DB_URL")
 skip_if_no_db = pytest.mark.skipif(
     not TEST_DB_URL,
-    reason="CONVO_TRACKER_TEST_DB_URL not set",
+    reason="QUACKMEM_TEST_DB_URL not set",
 )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from convo_tracker.core.exceptions import MetadataValidationError
+from quackmem.core.exceptions import MetadataValidationError
 
 _metadata_registry: dict[str, type] = {}
 

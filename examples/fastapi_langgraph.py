@@ -1,10 +1,10 @@
 """
 FastAPI + LangGraph example.
 
-Demonstrates integrating convo-tracker with LangGraph nodes in a FastAPI application.
+Demonstrates integrating quackmem with LangGraph nodes in a FastAPI application.
 Shows how to track conversations with per-request metadata.
 
-Install: pip install convo-tracker[langgraph] fastapi uvicorn
+Install: pip install quackmem[langgraph] fastapi uvicorn
 Run:     uvicorn examples.fastapi_langgraph:app --reload
 """
 from __future__ import annotations
@@ -15,19 +15,19 @@ from uuid import uuid4
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from convo_tracker import (
+from quackmem import (
     TrackerConfig,
     init_tracker,
     upgrade_db,
     register_metadata,
     get_tracking_context,
 )
-from convo_tracker.wrappers import langgraph_mem
+from quackmem.wrappers import langgraph_mem
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize convo-tracker on application startup."""
+    """Initialize quackmem on application startup."""
     config = TrackerConfig(
         database_url="postgresql+asyncpg://postgres:password@localhost/myapp",
         sync_mode=False,

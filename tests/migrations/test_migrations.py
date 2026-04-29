@@ -9,49 +9,49 @@ import os
 import pytest
 
 skip_if_no_db = pytest.mark.skipif(
-    not os.environ.get("CONVO_TRACKER_TEST_DB_URL"),
-    reason="CONVO_TRACKER_TEST_DB_URL not set",
+    not os.environ.get("QUACKMEM_TEST_DB_URL"),
+    reason="QUACKMEM_TEST_DB_URL not set",
 )
 
 
 class TestMigrationRunnerImport:
     def test_runner_module_importable(self):
-        from convo_tracker.migrations import runner
+        from quackmem.migrations import runner
         assert runner is not None
 
     def test_upgrade_db_is_callable(self):
-        from convo_tracker.migrations.runner import upgrade_db
+        from quackmem.migrations.runner import upgrade_db
         assert callable(upgrade_db)
 
     def test_downgrade_db_is_callable(self):
-        from convo_tracker.migrations.runner import downgrade_db
+        from quackmem.migrations.runner import downgrade_db
         assert callable(downgrade_db)
 
     def test_upgrade_and_downgrade_in_public_api(self):
-        from convo_tracker import upgrade_db, downgrade_db
+        from quackmem import upgrade_db, downgrade_db
         assert callable(upgrade_db)
         assert callable(downgrade_db)
 
 
 @skip_if_no_db
 class TestMigrationIntegration:
-    """Requires CONVO_TRACKER_TEST_DB_URL to be set."""
+    """Requires QUACKMEM_TEST_DB_URL to be set."""
 
     def test_upgrade_then_downgrade(self):
         import os
-        db_url = os.environ["CONVO_TRACKER_TEST_DB_URL"]
-        os.environ.setdefault("CONVO_TRACKER_DB_URL", db_url)
+        db_url = os.environ["QUACKMEM_TEST_DB_URL"]
+        os.environ.setdefault("QUACKMEM_DB_URL", db_url)
 
-        from convo_tracker.migrations.runner import upgrade_db, downgrade_db
+        from quackmem.migrations.runner import upgrade_db, downgrade_db
         upgrade_db()   # Should not raise
         downgrade_db("base")  # Undo all migrations
         upgrade_db()   # Re-apply — must be idempotent
 
     def test_upgrade_is_idempotent(self):
         import os
-        db_url = os.environ["CONVO_TRACKER_TEST_DB_URL"]
-        os.environ.setdefault("CONVO_TRACKER_DB_URL", db_url)
+        db_url = os.environ["QUACKMEM_TEST_DB_URL"]
+        os.environ.setdefault("QUACKMEM_DB_URL", db_url)
 
-        from convo_tracker.migrations.runner import upgrade_db
+        from quackmem.migrations.runner import upgrade_db
         upgrade_db()
         upgrade_db()  # Second run should be a no-op

@@ -6,9 +6,9 @@ from datetime import datetime
 
 import pytest
 
-from convo_tracker.schema.models import TrackedSession, TrackedMessage
-from convo_tracker.schema.canonical import CanonicalMessage
-from convo_tracker.schema.enums import MessageRole, MessageStatus
+from quackmem.schema.models import TrackedSession, TrackedMessage
+from quackmem.schema.canonical import CanonicalMessage
+from quackmem.schema.enums import MessageRole, MessageStatus
 
 
 # ---------------------------------------------------------------------------

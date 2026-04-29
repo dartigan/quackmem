@@ -1,7 +1,7 @@
 """Tests for PostgresBackend.
 
 Unit tests use mock_backend.
-Integration tests (marked skip_if_no_db) require CONVO_TRACKER_TEST_DB_URL.
+Integration tests (marked skip_if_no_db) require QUACKMEM_TEST_DB_URL.
 """
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from uuid import uuid4
 import os
 import pytest
 
-from convo_tracker.schema.models import TrackedSession, TrackedMessage
+from quackmem.schema.models import TrackedSession, TrackedMessage
 
 skip_if_no_db = pytest.mark.skipif(
-    not os.environ.get("CONVO_TRACKER_TEST_DB_URL"),
-    reason="CONVO_TRACKER_TEST_DB_URL not set",
+    not os.environ.get("QUACKMEM_TEST_DB_URL"),
+    reason="QUACKMEM_TEST_DB_URL not set",
 )
-from convo_tracker.schema.enums import MessageRole, MessageStatus
+from quackmem.schema.enums import MessageRole, MessageStatus
 
 
 # ---------------------------------------------------------------------------
@@ -26,18 +26,18 @@ from convo_tracker.schema.enums import MessageRole, MessageStatus
 
 class TestBackendUnit:
     def test_get_backend_returns_postgres_backend(self):
-        from convo_tracker.backend import get_backend, PostgresBackend
+        from quackmem.backend import get_backend, PostgresBackend
         b = get_backend()
         assert isinstance(b, PostgresBackend)
 
     def test_get_backend_is_singleton(self):
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         b1 = get_backend()
         b2 = get_backend()
         assert b1 is b2
 
     def test_backend_has_expected_methods(self):
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         b = get_backend()
         assert callable(b.upsert_session)
         assert callable(b.insert_message)
@@ -69,19 +69,19 @@ def _make_message(session: TrackedSession, **overrides) -> TrackedMessage:
 
 @skip_if_no_db
 class TestBackendIntegration:
-    """These tests require CONVO_TRACKER_TEST_DB_URL and will run migrations."""
+    """These tests require QUACKMEM_TEST_DB_URL and will run migrations."""
 
     @pytest.fixture(autouse=True, scope="class")
     def init_db(self):
         import os
-        from convo_tracker import TrackerConfig, init_tracker, upgrade_db
-        db_url = os.environ["CONVO_TRACKER_TEST_DB_URL"]
+        from quackmem import TrackerConfig, init_tracker, upgrade_db
+        db_url = os.environ["QUACKMEM_TEST_DB_URL"]
         upgrade_db()
         cfg = TrackerConfig(database_url=db_url, sync_mode=True)
         init_tracker(cfg)
 
     def test_upsert_session_idempotent(self):
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         backend = get_backend()
         session = _make_session()
 
@@ -93,7 +93,7 @@ class TestBackendIntegration:
         asyncio.run(run())
 
     def test_insert_message_writes_row(self):
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         backend = get_backend()
         session = _make_session()
         message = _make_message(session)
@@ -109,7 +109,7 @@ class TestBackendIntegration:
         assert str(rows[0]["id"]) == str(message.id)
 
     def test_update_status_only_changes_status(self):
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         backend = get_backend()
         session = _make_session()
         message = _make_message(session, status=MessageStatus.pending)
@@ -126,7 +126,7 @@ class TestBackendIntegration:
 
     def test_get_messages_returns_in_created_at_order(self):
         """Multiple messages should come back ascending by created_at."""
-        from convo_tracker.backend import get_backend
+        from quackmem.backend import get_backend
         import time
         backend = get_backend()
         session = _make_session()

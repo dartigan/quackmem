@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from convo_tracker.wrappers.openai_agents import OpenAIAgentsWrapper, openai_agents_mem
-from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.config import TrackerConfig
+from quackmem.wrappers.openai_agents import OpenAIAgentsWrapper, openai_agents_mem
+from quackmem.schema.enums import MessageRole
+from quackmem.core.config import TrackerConfig
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class TestOpenAIAgentsMemDecorator:
         backend = _mock_backend()
         run_result = _make_run_result("agent response", total_tokens=10)
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @openai_agents_mem()
             async def run_agent(input: str):
                 return run_result
@@ -173,7 +173,7 @@ class TestOpenAIAgentsMemDecorator:
 
         backend.upsert_session = capture_upsert
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @openai_agents_mem(session_id=fixed_session)
             async def run_agent(input: str):
                 return _make_run_result("done")

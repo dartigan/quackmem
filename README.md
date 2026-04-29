@@ -1,4 +1,4 @@
-# convo-tracker
+# quackmem
 
 Persist AI agent conversations to Postgres. One decorator, zero opinions.
 
@@ -20,21 +20,21 @@ Persist AI agent conversations to Postgres. One decorator, zero opinions.
 
 ```bash
 # Core
-pip install convo-tracker
+pip install quackmem
 
 # With LangGraph support
-pip install "convo-tracker[langgraph]"
+pip install "quackmem[langgraph]"
 
 # With OpenAI Agents SDK support
-pip install "convo-tracker[openai-agents]"
+pip install "quackmem[openai-agents]"
 ```
 
 ## Quickstart — standalone script
 
 ```python
 import asyncio
-from convo_tracker import TrackerConfig, init_tracker, upgrade_db, get_tracking_context
-from convo_tracker.wrappers import track_conversation
+from quackmem import TrackerConfig, init_tracker, upgrade_db, get_tracking_context
+from quackmem.wrappers import track_conversation
 
 async def main():
     config = TrackerConfig(
@@ -71,8 +71,8 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 from fastapi import FastAPI
 from pydantic import BaseModel
-from convo_tracker import TrackerConfig, init_tracker, upgrade_db, register_metadata, get_tracking_context
-from convo_tracker.wrappers import langgraph_mem
+from quackmem import TrackerConfig, init_tracker, upgrade_db, register_metadata, get_tracking_context
+from quackmem.wrappers import langgraph_mem
 
 
 @asynccontextmanager
@@ -129,7 +129,7 @@ For LangGraph node functions.
 | Output | State dict with a `messages` key; last message is recorded as the assistant response |
 
 ```python
-from convo_tracker.wrappers import langgraph_mem
+from quackmem.wrappers import langgraph_mem
 
 @langgraph_mem(user_id="u123", conversation_id="conv-456")
 async def my_node(state: dict) -> dict:
@@ -146,7 +146,7 @@ For OpenAI Agents SDK runner functions.
 | Output | A `RunResult` object; `result.final_output` is recorded as the assistant response |
 
 ```python
-from convo_tracker.wrappers import openai_agents_mem
+from quackmem.wrappers import openai_agents_mem
 
 @openai_agents_mem(user_id="u123")
 async def run_agent(input: str):
@@ -163,7 +163,7 @@ Generic fallback for any LLM call.
 | Output | String or dict; string content (or `content`/`output` key from dict) is recorded |
 
 ```python
-from convo_tracker.wrappers import track_conversation
+from quackmem.wrappers import track_conversation
 
 @track_conversation(user_id="u123")
 async def call_llm(messages: list[dict]) -> str:
@@ -175,7 +175,7 @@ All three decorators accept the same keyword arguments: `session_id`, `conversat
 ## Configuration — `TrackerConfig`
 
 ```python
-from convo_tracker import TrackerConfig
+from quackmem import TrackerConfig
 
 config = TrackerConfig(
     database_url="postgresql://user:pass@host/db",
@@ -201,7 +201,7 @@ config = TrackerConfig(
 Call `register_metadata` once at startup to declare which metadata keys are valid. After registration, any unknown kwarg passed to a decorator raises `MetadataValidationError` at decoration time rather than silently being ignored.
 
 ```python
-from convo_tracker import register_metadata
+from quackmem import register_metadata
 
 register_metadata({"user_id": str, "agent_id": str})
 
@@ -231,7 +231,7 @@ async def node(state): ...
 Use `get_tracking_context()` after a decorated call returns to retrieve the IDs assigned to that invocation:
 
 ```python
-from convo_tracker import get_tracking_context
+from quackmem import get_tracking_context
 
 result = await node(state)
 ctx = get_tracking_context()
@@ -271,7 +271,7 @@ Two tables are created (names respect `table_prefix` and `schema_name`):
 ## Startup pattern
 
 ```python
-from convo_tracker import TrackerConfig, init_tracker, upgrade_db
+from quackmem import TrackerConfig, init_tracker, upgrade_db
 
 config = TrackerConfig(database_url="postgresql://user:pass@host/db")
 upgrade_db()          # runs Alembic migrations, safe to call every startup

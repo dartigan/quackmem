@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
-from convo_tracker.schema.canonical import CanonicalMessage
+from quackmem.schema.canonical import CanonicalMessage
 
 
 class BaseWrapper(ABC):

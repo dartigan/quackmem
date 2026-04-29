@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from convo_tracker.schema.enums import MessageRole, MessageStatus
+from quackmem.schema.enums import MessageRole, MessageStatus
 
 
 class TrackedSession(BaseModel):

@@ -1,10 +1,10 @@
 """
 FastAPI + OpenAI Agents example.
 
-Demonstrates integrating convo-tracker with OpenAI Agents SDK in a FastAPI application.
+Demonstrates integrating quackmem with OpenAI Agents SDK in a FastAPI application.
 Shows how to wrap an agent runner with conversation tracking.
 
-Install: pip install convo-tracker fastapi uvicorn openai
+Install: pip install quackmem fastapi uvicorn openai
 Run:     uvicorn examples.fastapi_openai_agents:app --reload
 """
 from __future__ import annotations
@@ -15,19 +15,19 @@ from uuid import uuid4
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from convo_tracker import (
+from quackmem import (
     TrackerConfig,
     init_tracker,
     upgrade_db,
     register_metadata,
     get_tracking_context,
 )
-from convo_tracker.wrappers import openai_agents_mem
+from quackmem.wrappers import openai_agents_mem
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize convo-tracker on application startup."""
+    """Initialize quackmem on application startup."""
     config = TrackerConfig(
         database_url="postgresql+asyncpg://postgres:password@localhost/myapp",
         sync_mode=False,

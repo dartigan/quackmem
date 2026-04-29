@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "convo-tracker"
+name = "quackmem"
 version = "0.1.0"
 description = "Persist AI agent conversations to Postgres. One decorator, zero opinions."
 readme = "README.md"

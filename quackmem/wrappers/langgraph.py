@@ -1,10 +1,10 @@
 from __future__ import annotations
 from typing import Any
 import logging
-from convo_tracker.schema.canonical import CanonicalMessage
-from convo_tracker.schema.enums import MessageRole
-from convo_tracker.wrappers.base import BaseWrapper
-from convo_tracker.core.decorator import track
+from quackmem.schema.canonical import CanonicalMessage
+from quackmem.schema.enums import MessageRole
+from quackmem.wrappers.base import BaseWrapper
+from quackmem.core.decorator import track
 
 logger = logging.getLogger(__name__)
 

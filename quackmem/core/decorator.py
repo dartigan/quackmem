@@ -8,13 +8,13 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from convo_tracker.wrappers.base import BaseWrapper
+    from quackmem.wrappers.base import BaseWrapper
 
-from convo_tracker.core.context import TrackingContext, set_tracking_context, get_tracking_context, reset_tracking_context
-from convo_tracker.core.registry import validate_metadata
-from convo_tracker.core.exceptions import MetadataValidationError, TrackerConfigError
-from convo_tracker.schema.models import TrackedSession, TrackedMessage
-from convo_tracker.schema.enums import MessageStatus
+from quackmem.core.context import TrackingContext, set_tracking_context, get_tracking_context, reset_tracking_context
+from quackmem.core.registry import validate_metadata
+from quackmem.core.exceptions import MetadataValidationError, TrackerConfigError
+from quackmem.schema.models import TrackedSession, TrackedMessage
+from quackmem.schema.enums import MessageStatus
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ async def _fire_write(
         metadata=response.metadata or {},
     )
 
-    from convo_tracker.backend import get_backend
+    from quackmem.backend import get_backend
     backend = get_backend()
     await backend.upsert_session(session_model)
     await backend.insert_message(message_model)

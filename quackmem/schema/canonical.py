@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from convo_tracker.schema.enums import MessageRole
+from quackmem.schema.enums import MessageRole
 
 
 class CanonicalMessage(BaseModel):

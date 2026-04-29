@@ -5,9 +5,9 @@ from uuid import UUID
 
 import sqlalchemy as sa
 
-from convo_tracker.db import get_session, tracked_sessions, tracked_messages
-from convo_tracker.schema.models import TrackedSession, TrackedMessage
-from convo_tracker.schema.enums import MessageStatus
+from quackmem.db import get_session, tracked_sessions, tracked_messages
+from quackmem.schema.models import TrackedSession, TrackedMessage
+from quackmem.schema.enums import MessageStatus
 
 logger = logging.getLogger(__name__)
 

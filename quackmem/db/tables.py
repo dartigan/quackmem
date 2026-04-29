@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy import MetaData
 from sqlalchemy.dialects.postgresql import JSONB
 
-from convo_tracker.core.config import TrackerConfig
+from quackmem.core.config import TrackerConfig
 
 metadata = MetaData()
 tracked_sessions: sa.Table | None = None

@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from convo_tracker.wrappers.langgraph import LangGraphWrapper, langgraph_mem
-from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.config import TrackerConfig
+from quackmem.wrappers.langgraph import LangGraphWrapper, langgraph_mem
+from quackmem.schema.enums import MessageRole
+from quackmem.core.config import TrackerConfig
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ class TestLangGraphMemDecorator:
     @pytest.mark.asyncio
     async def test_wraps_async_function(self):
         backend = _mock_backend()
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @langgraph_mem()
             async def my_node(state: dict) -> dict:
                 return {"messages": [_make_lc_message("AIMessage", "wrapped result")]}
@@ -190,7 +190,7 @@ class TestLangGraphMemDecorator:
 
         backend.upsert_session = capture_upsert
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             fixed_conv = uuid4()
 
             @langgraph_mem(conversation_id=fixed_conv)

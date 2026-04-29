@@ -1,18 +1,20 @@
 from __future__ import annotations
 from typing import Any
 import logging
-from convo_tracker.schema.canonical import CanonicalMessage
-from convo_tracker.schema.enums import MessageRole
-from convo_tracker.wrappers.base import BaseWrapper
-from convo_tracker.core.decorator import track
+from quackmem.schema.canonical import CanonicalMessage
+from quackmem.schema.enums import MessageRole
+from quackmem.wrappers.base import BaseWrapper
+from quackmem.core.decorator import track
 
 logger = logging.getLogger(__name__)
 
 
-class GenericWrapper(BaseWrapper):
+class OpenAIAgentsWrapper(BaseWrapper):
 
     def extract_messages(self, args: tuple, kwargs: dict) -> list[CanonicalMessage]:
-        messages_input = args[0] if args else kwargs.get("messages", kwargs.get("input", []))
+        # OpenAI Agents SDK: input is typically a list of dicts or a string
+        # First positional arg or 'input' kwarg
+        messages_input = args[0] if args else kwargs.get("input", kwargs.get("messages", []))
         if isinstance(messages_input, str):
             return [CanonicalMessage(role=MessageRole.user, content=messages_input)]
         if isinstance(messages_input, list):
@@ -31,32 +33,38 @@ class GenericWrapper(BaseWrapper):
         return []
 
     def extract_response(self, result: Any) -> CanonicalMessage:
+        # RunResult has .final_output attribute
+        if hasattr(result, "final_output"):
+            content = result.final_output
+            if isinstance(content, str):
+                return CanonicalMessage(role=MessageRole.assistant, content=content)
+            return CanonicalMessage(role=MessageRole.assistant, content=str(content))
+        # Plain string or dict fallback
         if isinstance(result, str):
             return CanonicalMessage(role=MessageRole.assistant, content=result)
-        if isinstance(result, dict):
-            content = result.get("content", result.get("output", str(result)))
-            return CanonicalMessage(role=MessageRole.assistant, content=content)
         return CanonicalMessage(role=MessageRole.assistant, content=str(result))
 
     def extract_token_count(self, result: Any) -> int | None:
-        if isinstance(result, dict):
-            usage = result.get("usage")
-            if isinstance(usage, dict):
-                return usage.get("total_tokens") or usage.get("completion_tokens")
+        # RunResult.usage.total_tokens
+        try:
+            usage = getattr(result, "usage", None)
+            if usage is not None:
+                return getattr(usage, "total_tokens", None)
+        except Exception:
+            pass
         return None
 
 
-def track_conversation(**kwargs):
+def openai_agents_mem(**kwargs):
     """
-    Generic decorator factory. Works with any function that takes OpenAI-format
-    message dicts as the first argument and returns a string or dict.
+    Decorator factory for OpenAI Agents SDK runner functions.
 
     Usage:
-        @track_conversation(user_id="u123", sync_mode note: set in TrackerConfig)
-        async def my_llm_call(messages: list[dict]) -> str:
+        @openai_agents_mem(user_id="u123")
+        async def run_agent(input: str) -> RunResult:
             ...
     """
-    wrapper = GenericWrapper()
+    wrapper = OpenAIAgentsWrapper()
     def decorator(fn):
         return track(wrapper, **kwargs)(fn)
     return decorator

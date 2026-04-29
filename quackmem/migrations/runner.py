@@ -32,7 +32,7 @@ def _make_alembic_config(schema: str = "public", revision_env: str | None = None
     cfg.set_section_option("alembic", "target_schema", schema)
 
     # Set version_table to avoid conflicts
-    cfg.set_section_option("alembic", "version_table", "convo_tracker_alembic_version")
+    cfg.set_section_option("alembic", "version_table", "quackmem_alembic_version")
 
     return cfg
 

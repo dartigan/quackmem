@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from convo_tracker.core.config import TrackerConfig
+from quackmem.core.config import TrackerConfig
 
 
 class TestTrackerConfigValidation:

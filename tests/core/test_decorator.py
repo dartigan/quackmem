@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from convo_tracker.core.config import TrackerConfig
-from convo_tracker.core.context import get_tracking_context
-from convo_tracker.core.decorator import track
-from convo_tracker.core.exceptions import MetadataValidationError
-from convo_tracker.wrappers.generic import GenericWrapper
-from convo_tracker.schema.enums import MessageRole
+from quackmem.core.config import TrackerConfig
+from quackmem.core.context import get_tracking_context
+from quackmem.core.decorator import track
+from quackmem.core.exceptions import MetadataValidationError
+from quackmem.wrappers.generic import GenericWrapper
+from quackmem.schema.enums import MessageRole
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ def _make_config() -> TrackerConfig:
 
 
 def _reset_registry(monkeypatch):
-    import convo_tracker.core.registry as reg_module
+    import quackmem.core.registry as reg_module
     monkeypatch.setattr(reg_module, "_metadata_registry", {})
 
 
@@ -53,7 +53,7 @@ class TestTrackDecorator:
     def test_sync_function_is_called_and_returns_result(self):
         wrapper = GenericWrapper()
         backend = _mock_backend()
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             def my_func(messages):
                 return "the answer"
@@ -65,7 +65,7 @@ class TestTrackDecorator:
     async def test_async_function_is_called_and_returns_result(self):
         wrapper = GenericWrapper()
         backend = _mock_backend()
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_async_func(messages):
                 return "async result"
@@ -80,7 +80,7 @@ class TestTrackDecorator:
         captured = {}
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -101,7 +101,7 @@ class TestTrackDecorator:
         captured = {}
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper, session_id=fixed_session, conversation_id=fixed_conv)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -120,7 +120,7 @@ class TestTrackDecorator:
         captured = {}
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper, session_id=str(fixed_session))
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -133,13 +133,13 @@ class TestTrackDecorator:
     @pytest.mark.asyncio
     async def test_metadata_validation_error_propagates(self, monkeypatch):
         """MetadataValidationError is a developer error — it must bubble up."""
-        from convo_tracker.core.registry import register_metadata
+        from quackmem.core.registry import register_metadata
         register_metadata({"user_id": str})
 
         wrapper = GenericWrapper()
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper, bad_key="oops")
             async def my_func(messages):
                 return "ok"
@@ -154,7 +154,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
         backend.upsert_session = AsyncMock(side_effect=RuntimeError("db down"))
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 return "still works"
@@ -170,7 +170,7 @@ class TestTrackDecorator:
         ctx_during = {}
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 ctx_during["inside"] = get_tracking_context()
@@ -188,7 +188,7 @@ class TestTrackDecorator:
         wrapper = GenericWrapper()
         backend = _mock_backend()
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 return "response"
@@ -210,7 +210,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
         backend.upsert_session = fake_upsert
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper, user_id="alice")
             async def my_func(messages):
                 return "ok"

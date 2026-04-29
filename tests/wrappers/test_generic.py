@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from convo_tracker.wrappers.generic import GenericWrapper, track_conversation
-from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.config import TrackerConfig
+from quackmem.wrappers.generic import GenericWrapper, track_conversation
+from quackmem.schema.enums import MessageRole
+from quackmem.core.config import TrackerConfig
 
 
 def _mock_backend():
@@ -141,7 +141,7 @@ class TestTrackConversationDecorator:
     @pytest.mark.asyncio
     async def test_async_function_wrapped(self):
         backend = _mock_backend()
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation()
             async def my_llm_call(messages):
                 return "llm output"
@@ -154,7 +154,7 @@ class TestTrackConversationDecorator:
 
     def test_sync_function_wrapped(self):
         backend = _mock_backend()
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation()
             def my_sync_call(messages):
                 return "sync output"
@@ -173,7 +173,7 @@ class TestTrackConversationDecorator:
 
         backend.upsert_session = capture_upsert
 
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation(user_id="bob")
             async def my_llm_call(messages):
                 return "ok"
@@ -186,7 +186,7 @@ class TestTrackConversationDecorator:
     async def test_tracking_error_does_not_break_caller(self):
         backend = _mock_backend()
         backend.upsert_session = AsyncMock(side_effect=Exception("boom"))
-        with patch("convo_tracker.backend.get_backend", return_value=backend):
+        with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation()
             async def my_llm_call(messages):
                 return "result despite failure"

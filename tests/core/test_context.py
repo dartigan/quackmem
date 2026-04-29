@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from convo_tracker.core.context import (
+from quackmem.core.context import (
     TrackingContext,
     get_tracking_context,
     set_tracking_context,

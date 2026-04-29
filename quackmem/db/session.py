@@ -5,8 +5,8 @@ from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from convo_tracker.core.config import TrackerConfig
-from convo_tracker.core.exceptions import TrackerConfigError
+from quackmem.core.config import TrackerConfig
+from quackmem.core.exceptions import TrackerConfigError
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker | None = None

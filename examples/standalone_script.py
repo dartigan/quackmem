@@ -1,23 +1,23 @@
 """
 Standalone script example.
 
-Demonstrates convo-tracker in a simple standalone script with sync_mode=True.
+Demonstrates quackmem in a simple standalone script with sync_mode=True.
 No Celery or Redis required. Useful for scripts, CLIs, and simple applications.
 
-Install: pip install convo-tracker
+Install: pip install quackmem
 Run:     python examples/standalone_script.py
 """
 from __future__ import annotations
 
 import asyncio
 
-from convo_tracker import (
+from quackmem import (
     TrackerConfig,
     init_tracker,
     upgrade_db,
     get_tracking_context,
 )
-from convo_tracker.wrappers import track_conversation
+from quackmem.wrappers import track_conversation
 
 
 async def main():
