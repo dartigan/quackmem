@@ -30,8 +30,6 @@ async def lifespan(app: FastAPI):
     """Initialize quackmem on application startup."""
     config = TrackerConfig(
         database_url="postgresql+asyncpg://postgres:password@localhost/myapp",
-        sync_mode=False,
-        celery_broker_url="redis://localhost:6379/0",
     )
     upgrade_db()
     init_tracker(config)

@@ -265,6 +265,24 @@ class TestBackendIntegration:
         assert rows[0]["regeneration_count"] == 1
         assert rows[0]["updated_at"] is not None
 
+    def test_update_message_auto_increments_regeneration_count(self):
+        from quackmem.backend import get_backend
+        backend = get_backend()
+        session = _make_session()
+        message = _make_message(session, content="original", regeneration_count=2)
+
+        async def run():
+            await backend.create_session(session)
+            await backend.insert_message(message)
+            await backend.update_message(message.id, "updated")
+            rows = await backend.get_messages(session.id)
+            return rows
+
+        rows = asyncio.run(run())
+        assert rows[0]["content"] == "updated"
+        assert rows[0]["regeneration_count"] == 3
+        assert rows[0]["updated_at"] is not None
+
     def test_get_messages_returns_in_created_at_order(self):
         """Multiple messages should come back ascending by created_at."""
         from quackmem.backend import get_backend

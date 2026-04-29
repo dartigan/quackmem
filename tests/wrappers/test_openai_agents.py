@@ -31,6 +31,8 @@ def _mock_backend():
     backend = MagicMock()
     backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
+    backend.update_message = AsyncMock(return_value=None)
+    backend.get_messages = AsyncMock(return_value=[])
     return backend
 
 
@@ -160,11 +162,12 @@ class TestOpenAIAgentsMemDecorator:
 
         assert result is run_result
         backend.create_session.assert_called_once()
-        backend.insert_message.assert_called_once()
+        # 1 input message + 1 response = 2 insert_message calls
+        assert backend.insert_message.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_session_id_always_auto_generated(self):
-        """session_id is always auto-generated; not taken from kwargs."""
+    async def test_session_id_auto_generated_when_not_provided(self):
+        """session_id is auto-generated when not provided."""
         captured = {}
         backend = _mock_backend()
 
@@ -180,5 +183,25 @@ class TestOpenAIAgentsMemDecorator:
 
             await run_agent("hello")
 
-        # session_id should be a UUID (auto-generated)
         assert isinstance(captured["session"].id, uuid4().__class__)
+
+    @pytest.mark.asyncio
+    async def test_session_id_from_kwargs_used_when_provided(self):
+        """When session_id is provided, it is used."""
+        fixed_session = uuid4()
+        captured = {}
+        backend = _mock_backend()
+
+        async def capture_upsert(session):
+            captured["session"] = session
+
+        backend.create_session = capture_upsert
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @openai_agents_mem(session_id=fixed_session)
+            async def run_agent(input: str):
+                return _make_run_result("done")
+
+            await run_agent("hello")
+
+        assert captured["session"].id == fixed_session

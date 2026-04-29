@@ -22,10 +22,8 @@ from quackmem.wrappers import track_conversation
 
 async def main():
     """Initialize tracker and run a tracked conversation."""
-    # Configure tracker for sync mode (no Celery needed)
     config = TrackerConfig(
         database_url="postgresql+asyncpg://postgres:password@localhost/myapp",
-        sync_mode=True,  # Write directly to DB, no broker needed
     )
 
     # Run migrations

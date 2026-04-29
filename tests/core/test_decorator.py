@@ -35,6 +35,8 @@ def _mock_backend():
     backend = MagicMock()
     backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
+    backend.update_message = AsyncMock(return_value=None)
+    backend.get_messages = AsyncMock(return_value=[])
     return backend
 
 
@@ -94,25 +96,60 @@ class TestTrackDecorator:
         assert isinstance(ctx.conversation_id, uuid.UUID)
 
     @pytest.mark.asyncio
-    async def test_session_id_always_auto_generated(self):
-        """session_id is always auto-generated, never from kwargs."""
+    async def test_session_id_auto_generated_when_not_provided(self):
+        """session_id is auto-generated when not provided."""
         wrapper = GenericWrapper()
         captured_ids = []
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            # Even if a developer tries to pass session_id as metadata,
-            # it gets treated as metadata and is not used as the actual session_id
-            @track(wrapper, session_id="should-be-ignored")
+            @track(wrapper)
             async def my_func(messages):
                 captured_ids.append(get_tracking_context().session_id)
                 return "ok"
 
             await my_func(["hello"])
 
-        # Verify session_id is a UUID (auto-generated), not a string
         assert len(captured_ids) == 1
         assert isinstance(captured_ids[0], uuid.UUID)
+
+    @pytest.mark.asyncio
+    async def test_session_id_from_kwargs_used_when_provided(self):
+        """When session_id is provided, it is used."""
+        wrapper = GenericWrapper()
+        fixed_session = uuid.uuid4()
+        captured = {}
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                captured["ctx"] = get_tracking_context()
+                return "ok"
+
+            await my_func(["hello"])
+
+        ctx = captured["ctx"]
+        assert ctx.session_id == fixed_session
+        assert isinstance(ctx.conversation_id, uuid.UUID)
+
+    @pytest.mark.asyncio
+    async def test_string_session_id_converted_to_uuid(self):
+        """String session_id is converted to UUID."""
+        wrapper = GenericWrapper()
+        fixed_session = uuid.uuid4()
+        captured = {}
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=str(fixed_session))
+            async def my_func(messages):
+                captured["ctx"] = get_tracking_context()
+                return "ok"
+
+            await my_func(["x"])
+
+        assert captured["ctx"].session_id == fixed_session
 
     @pytest.mark.asyncio
     async def test_provided_conversation_id_is_used(self):
@@ -223,6 +260,56 @@ class TestTrackDecorator:
         backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_all_input_messages_inserted_on_fresh_session(self):
+        """All extracted input messages are inserted plus the response."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.get_messages = AsyncMock(return_value=[])
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi"},
+            ])
+
+        backend.create_session.assert_called_once()
+        # 2 input messages + 1 response = 3 insert_message calls
+        assert backend.insert_message.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_regenerate_message_id_calls_update_not_insert(self):
+        """When regenerate_message_id is provided, update_message is called for response."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        regen_id = uuid.uuid4()
+
+        # Existing user message in DB — should be skipped via dedup.
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, regenerate_message_id=regen_id)
+            async def my_func(messages):
+                return "regenerated response"
+
+            await my_func([{"role": "user", "content": "hi"}])
+
+        backend.create_session.assert_called_once()
+        # No input messages inserted on regeneration (deduped), response is updated
+        assert backend.insert_message.call_count == 0
+        backend.update_message.assert_awaited_once_with(
+            regen_id,
+            "regenerated response",
+            regeneration_count=None,
+        )
+
+    @pytest.mark.asyncio
     async def test_metadata_passed_to_session_model(self):
         """Metadata kwargs (non-reserved) are stored in the session model."""
         wrapper = GenericWrapper()
@@ -243,3 +330,167 @@ class TestTrackDecorator:
 
         # session_id and conversation_id are reserved; user_id becomes metadata
         assert captured_args["session"].metadata.get("user_id") == "alice"
+
+
+    @pytest.mark.asyncio
+    async def test_regenerate_on_existing_session_skips_inputs(self):
+        """Regeneration skips inserting input messages and updates response in place."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+        regen_id = uuid.uuid4()
+
+        # Existing messages in DB — input should be deduped, response updated.
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session, regenerate_message_id=regen_id)
+            async def my_func(messages):
+                return "regenerated"
+
+            await my_func([{"role": "user", "content": "hi"}])
+
+        backend.create_session.assert_called_once()
+        # No new input messages on regeneration (deduped), response is updated not inserted
+        assert backend.insert_message.call_count == 0
+        backend.update_message.assert_awaited_once_with(
+            regen_id,
+            "regenerated",
+            regeneration_count=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reused_session_dedups_existing_messages(self):
+        """When session_id is reused, only new input messages are inserted."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {
+                "id": uuid.uuid4(),
+                "role": "system",
+                "content": "sys",
+                "created_at": "2024-01-01",
+            },
+            {
+                "id": uuid.uuid4(),
+                "role": "user",
+                "content": "hi",
+                "created_at": "2024-01-02",
+            },
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi"},
+                {"role": "user", "content": "follow up"},
+            ])
+
+        backend.create_session.assert_called_once()
+        # 1 new input message + 1 response = 2 insert_message calls
+        assert backend.insert_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fresh_session_inserts_all_messages(self):
+        """Fresh session (empty get_messages) inserts all input messages + response."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.get_messages = AsyncMock(return_value=[])
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=uuid.uuid4())
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi"},
+            ])
+
+        assert backend.insert_message.call_count == 3
+
+
+    @pytest.mark.asyncio
+    async def test_fire_write_sets_context_message_id(self):
+        """After inserting a new response, _fire_write updates ctx.message_id."""
+        from quackmem.core.decorator import _fire_write
+        from quackmem.core.context import (
+            TrackingContext,
+            set_tracking_context,
+            reset_tracking_context,
+        )
+
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.get_messages = AsyncMock(return_value=[])
+
+        sid = uuid.uuid4()
+        cid = uuid.uuid4()
+        ctx = TrackingContext(session_id=sid, conversation_id=cid)
+        token = set_tracking_context(ctx)
+
+        try:
+            with patch("quackmem.backend.get_backend", return_value=backend):
+                await _fire_write(
+                    wrapper,
+                    {},
+                    ([{"role": "user", "content": "hi"}],),
+                    {},
+                    "response",
+                    sid,
+                    cid,
+                    {},
+                )
+
+            assert ctx.message_id is not None
+            assert isinstance(ctx.message_id, uuid.UUID)
+        finally:
+            reset_tracking_context(token)
+
+    @pytest.mark.asyncio
+    async def test_regenerate_sets_context_message_id(self):
+        """Regeneration sets ctx.message_id to the existing message ID for chaining."""
+        from quackmem.core.decorator import _fire_write
+        from quackmem.core.context import (
+            TrackingContext,
+            set_tracking_context,
+            reset_tracking_context,
+        )
+
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.get_messages = AsyncMock(return_value=[])
+        regen_id = uuid.uuid4()
+
+        sid = uuid.uuid4()
+        cid = uuid.uuid4()
+        ctx = TrackingContext(session_id=sid, conversation_id=cid)
+        token = set_tracking_context(ctx)
+
+        try:
+            with patch("quackmem.backend.get_backend", return_value=backend):
+                await _fire_write(
+                    wrapper,
+                    {"regenerate_message_id": regen_id},
+                    ([{"role": "user", "content": "hi"}],),
+                    {},
+                    "regenerated",
+                    sid,
+                    cid,
+                    {},
+                )
+
+            # On regeneration, ctx.message_id is set to the existing message ID
+            assert ctx.message_id == regen_id
+        finally:
+            reset_tracking_context(token)

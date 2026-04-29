@@ -18,11 +18,16 @@ from quackmem.schema.enums import MessageStatus
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_KEYS = frozenset({"conversation_id"})
+_RESERVED_KEYS = frozenset({"conversation_id", "session_id", "regenerate_message_id"})
 
 
 def _resolve_ids(decorator_kwargs: dict) -> tuple[uuid.UUID, uuid.UUID]:
-    session_id = uuid.uuid4()  # always generated
+    session_id = decorator_kwargs.get("session_id")
+    if session_id is None:
+        session_id = uuid.uuid4()
+    elif not isinstance(session_id, uuid.UUID):
+        session_id = uuid.UUID(str(session_id))
+
     conversation_id = decorator_kwargs.get("conversation_id")
     if conversation_id is None:
         conversation_id = uuid.uuid4()
@@ -49,33 +54,101 @@ async def _fire_write(
     response = wrapper.extract_response(result)
     token_count = wrapper.extract_token_count(result)
 
-    message_id = uuid.uuid4()
+    regenerate_message_id = decorator_kwargs.get("regenerate_message_id")
 
-    # Read context after the function returned — nested calls may have set a parent.
-    ctx = get_tracking_context()
-    parent_message_id = ctx.message_id if ctx else None
+    from quackmem.backend import get_backend
+    backend = get_backend()
 
     session_model = TrackedSession(
         id=session_id,
         conversation_id=conversation_id,
         metadata=metadata,
     )
-    message_model = TrackedMessage(
-        id=message_id,
-        session_id=session_id,
-        conversation_id=conversation_id,
-        parent_message_id=parent_message_id,
-        role=response.role,
-        content=response.content,
-        token_count=token_count or response.token_count,
-        status=MessageStatus.completed,
-        metadata=response.metadata or {},
-    )
-
-    from quackmem.backend import get_backend
-    backend = get_backend()
     await backend.create_session(session_model)
-    await backend.insert_message(message_model)
+
+    # Fetch existing messages to deduplicate — each call may pass full history.
+    existing_rows = await backend.get_messages(session_id)
+    existing_keys = [
+        (str(row["role"]), row["content"]) for row in existing_rows
+    ]
+
+    # Insert only new input messages (skip prefix already in DB, skip on regeneration).
+    last_input_message_id = None
+    if not regenerate_message_id:
+        for i, msg in enumerate(messages):
+            msg_role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            key = (msg_role, msg.content)
+            if i < len(existing_keys) and existing_keys[i] == key:
+                # Already persisted — reuse its ID for parent linking.
+                last_input_message_id = uuid.UUID(str(existing_rows[i]["id"]))
+                continue
+            msg_id = uuid.uuid4()
+            message_model = TrackedMessage(
+                id=msg_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                parent_message_id=None,
+                role=msg.role,
+                content=msg.content,
+                token_count=msg.token_count,
+                status=MessageStatus.completed,
+                metadata=msg.metadata or {},
+            )
+            await backend.insert_message(message_model)
+            last_input_message_id = msg_id
+
+    # Read context after the function returned — nested calls may have set a parent.
+    ctx = get_tracking_context()
+    parent_message_id = ctx.message_id if ctx else None
+    # Fallback: if context has no message_id but we have input messages,
+    # the response's parent is the last input message
+    if parent_message_id is None and last_input_message_id is not None:
+        parent_message_id = last_input_message_id
+
+    if regenerate_message_id:
+        regen_id = uuid.UUID(str(regenerate_message_id))
+        await backend.update_message(
+            regen_id,
+            response.content,
+            regeneration_count=None,
+        )
+        ctx = get_tracking_context()
+        if ctx is not None:
+            ctx.message_id = regen_id
+            logger.debug(
+                "TrackingContext updated (regeneration)",
+                extra={
+                    "session_id": str(ctx.session_id),
+                    "message_id": str(regen_id),
+                    "parent_message_id": str(parent_message_id) if parent_message_id else None,
+                },
+            )
+    else:
+        message_id = uuid.uuid4()
+        message_model = TrackedMessage(
+            id=message_id,
+            session_id=session_id,
+            conversation_id=conversation_id,
+            parent_message_id=parent_message_id,
+            role=response.role,
+            content=response.content,
+            token_count=token_count or response.token_count,
+            status=MessageStatus.completed,
+            metadata=response.metadata or {},
+        )
+        await backend.insert_message(message_model)
+
+        ctx = get_tracking_context()
+        if ctx is not None and message_id is not None:
+            ctx.message_id = message_id
+            logger.debug(
+                "TrackingContext updated (insert)",
+                extra={
+                    "session_id": str(ctx.session_id),
+                    "message_id": str(message_id),
+                    "parent_message_id": str(parent_message_id) if parent_message_id else None,
+                },
+            )
 
 
 async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):
@@ -89,13 +162,16 @@ async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):
     token = set_tracking_context(ctx)
     try:
         result = await fn(*args, **fn_kwargs)
-    finally:
+    except Exception:
         reset_tracking_context(token)
+        raise
 
     try:
         await _fire_write(wrapper, decorator_kwargs, args, fn_kwargs, result, session_id, conversation_id, metadata)
     except Exception:
         logger.error("Tracking write failed", exc_info=True)
+    finally:
+        reset_tracking_context(token)
 
     return result
 
@@ -113,14 +189,17 @@ async def _run_tracked_asyncgen(fn, wrapper, decorator_kwargs, args, fn_kwargs):
         async for chunk in fn(*args, **fn_kwargs):
             chunks.append(chunk)
             yield chunk
-    finally:
+    except Exception:
         reset_tracking_context(token)
+        raise
 
     # Pass the buffered chunk list as "result" — the wrapper's extract_response handles reassembly.
     try:
         await _fire_write(wrapper, decorator_kwargs, args, fn_kwargs, chunks, session_id, conversation_id, metadata)
     except Exception:
         logger.error("Tracking write (stream) failed", exc_info=True)
+    finally:
+        reset_tracking_context(token)
 
 
 def _run_tracked_sync(fn, wrapper, decorator_kwargs, args, fn_kwargs):
@@ -133,13 +212,16 @@ def _run_tracked_sync(fn, wrapper, decorator_kwargs, args, fn_kwargs):
     token = set_tracking_context(ctx)
     try:
         result = fn(*args, **fn_kwargs)
-    finally:
+    except Exception:
         reset_tracking_context(token)
+        raise
 
     try:
         asyncio.run(_fire_write(wrapper, decorator_kwargs, args, fn_kwargs, result, session_id, conversation_id, metadata))
     except Exception:
         logger.error("Tracking write failed", exc_info=True)
+    finally:
+        reset_tracking_context(token)
 
     return result
 

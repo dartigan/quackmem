@@ -79,6 +79,7 @@ class PostgresBackend:
     ) -> None:
         """Update an existing assistant message. Used for regeneration.
         Updates content, updated_at, and optionally regeneration_count.
+        When regeneration_count is None, auto-increments the existing value.
         Must not create new rows — only updates existing ones."""
         from datetime import datetime, UTC
         async with get_session() as db:
@@ -88,6 +89,8 @@ class PostgresBackend:
             }
             if regeneration_count is not None:
                 values["regeneration_count"] = regeneration_count
+            else:
+                values["regeneration_count"] = tracked_messages.c.regeneration_count + 1
             await db.execute(
                 update(tracked_messages)
                 .where(tracked_messages.c.id == message_id)

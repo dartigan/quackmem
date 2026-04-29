@@ -33,6 +33,8 @@ def _mock_backend():
     backend = MagicMock()
     backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
+    backend.update_message = AsyncMock(return_value=None)
+    backend.get_messages = AsyncMock(return_value=[])
     return backend
 
 
@@ -178,7 +180,8 @@ class TestLangGraphMemDecorator:
 
         assert result["messages"][0].content == "wrapped result"
         backend.create_session.assert_called_once()
-        backend.insert_message.assert_called_once()
+        # 1 input message + 1 response = 2 insert_message calls
+        assert backend.insert_message.call_count == 2
 
     @pytest.mark.asyncio
     async def test_passes_kwargs_to_track(self):
