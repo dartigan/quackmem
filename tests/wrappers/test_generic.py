@@ -13,7 +13,7 @@ from quackmem.core.config import TrackerConfig
 
 def _mock_backend():
     backend = MagicMock()
-    backend.upsert_session = AsyncMock(return_value=None)
+    backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
     return backend
 
@@ -149,7 +149,7 @@ class TestTrackConversationDecorator:
             result = await my_llm_call([{"role": "user", "content": "test"}])
 
         assert result == "llm output"
-        backend.upsert_session.assert_called_once()
+        backend.create_session.assert_called_once()
         backend.insert_message.assert_called_once()
 
     def test_sync_function_wrapped(self):
@@ -171,7 +171,7 @@ class TestTrackConversationDecorator:
         async def capture_upsert(session):
             captured["session"] = session
 
-        backend.upsert_session = capture_upsert
+        backend.create_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation(user_id="bob")
@@ -185,7 +185,7 @@ class TestTrackConversationDecorator:
     @pytest.mark.asyncio
     async def test_tracking_error_does_not_break_caller(self):
         backend = _mock_backend()
-        backend.upsert_session = AsyncMock(side_effect=Exception("boom"))
+        backend.create_session = AsyncMock(side_effect=Exception("boom"))
         with patch("quackmem.backend.get_backend", return_value=backend):
             @track_conversation()
             async def my_llm_call(messages):

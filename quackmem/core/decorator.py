@@ -74,7 +74,7 @@ async def _fire_write(
 
     from quackmem.backend import get_backend
     backend = get_backend()
-    await backend.upsert_session(session_model)
+    await backend.create_session(session_model)
     await backend.insert_message(message_model)
 
 

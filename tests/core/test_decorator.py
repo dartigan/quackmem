@@ -33,7 +33,7 @@ def _reset_registry(monkeypatch):
 def _mock_backend():
     """Return a mock backend with async methods."""
     backend = MagicMock()
-    backend.upsert_session = AsyncMock(return_value=None)
+    backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
     return backend
 
@@ -176,7 +176,7 @@ class TestTrackDecorator:
         """If DB write fails, the result is still returned (tracking is fire-and-forget)."""
         wrapper = GenericWrapper()
         backend = _mock_backend()
-        backend.upsert_session = AsyncMock(side_effect=RuntimeError("db down"))
+        backend.create_session = AsyncMock(side_effect=RuntimeError("db down"))
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
@@ -208,7 +208,7 @@ class TestTrackDecorator:
 
     @pytest.mark.asyncio
     async def test_backend_upsert_and_insert_called(self):
-        """_fire_write must call upsert_session then insert_message on the backend."""
+        """_fire_write must call create_session then insert_message on the backend."""
         wrapper = GenericWrapper()
         backend = _mock_backend()
 
@@ -219,7 +219,7 @@ class TestTrackDecorator:
 
             await my_func(["input"])
 
-        backend.upsert_session.assert_called_once()
+        backend.create_session.assert_called_once()
         backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
@@ -232,7 +232,7 @@ class TestTrackDecorator:
             captured_args["session"] = session_model
 
         backend = _mock_backend()
-        backend.upsert_session = fake_upsert
+        backend.create_session = fake_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper, user_id="alice")

@@ -31,7 +31,7 @@ def _make_lc_message(class_name: str, content: str, usage_metadata: dict | None 
 
 def _mock_backend():
     backend = MagicMock()
-    backend.upsert_session = AsyncMock(return_value=None)
+    backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
     return backend
 
@@ -177,7 +177,7 @@ class TestLangGraphMemDecorator:
             result = await my_node(state)
 
         assert result["messages"][0].content == "wrapped result"
-        backend.upsert_session.assert_called_once()
+        backend.create_session.assert_called_once()
         backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
@@ -188,7 +188,7 @@ class TestLangGraphMemDecorator:
         async def capture_upsert(session):
             captured["session"] = session
 
-        backend.upsert_session = capture_upsert
+        backend.create_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             fixed_conv = uuid4()

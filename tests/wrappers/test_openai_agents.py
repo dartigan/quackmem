@@ -29,7 +29,7 @@ def _make_run_result(final_output: str, total_tokens: int | None = None):
 
 def _mock_backend():
     backend = MagicMock()
-    backend.upsert_session = AsyncMock(return_value=None)
+    backend.create_session = AsyncMock(return_value=None)
     backend.insert_message = AsyncMock(return_value=None)
     return backend
 
@@ -159,7 +159,7 @@ class TestOpenAIAgentsMemDecorator:
             result = await run_agent("what is the capital of France?")
 
         assert result is run_result
-        backend.upsert_session.assert_called_once()
+        backend.create_session.assert_called_once()
         backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
@@ -171,7 +171,7 @@ class TestOpenAIAgentsMemDecorator:
         async def capture_upsert(session):
             captured["session"] = session
 
-        backend.upsert_session = capture_upsert
+        backend.create_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @openai_agents_mem()

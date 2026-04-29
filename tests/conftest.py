@@ -17,7 +17,7 @@ def mock_backend():
     """Mock PostgresBackend for unit tests that patch quackmem.backend.get_backend."""
     with patch("quackmem.backend.get_backend") as mock_get:
         backend = MagicMock()
-        backend.upsert_session = AsyncMock(return_value=None)
+        backend.create_session = AsyncMock(return_value=None)
         backend.insert_message = AsyncMock(return_value=None)
         backend.update_status = AsyncMock(return_value=None)
         backend.get_messages = AsyncMock(return_value=[])
