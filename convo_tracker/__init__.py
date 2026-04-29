@@ -13,11 +13,6 @@ def init_tracker(config: TrackerConfig) -> None:
     from convo_tracker.db.session import init_engine
     from convo_tracker.db.tables import build_tables
 
-    if not config.database_url:
-        raise TrackerConfigError("TrackerConfig.database_url is required")
-
-    # URL auto-correction (postgresql:// -> postgresql+asyncpg://) is handled in
-    # TrackerConfig validation — see convo_tracker/core/config.py.
     init_engine(config)
 
     schema = config.schema_name if config.schema_name != "public" else None
