@@ -76,27 +76,47 @@ async def _fire_write(
     # conversation history on every request.
     existing_rows = await backend.get_messages(session_id)
 
-    # Build a set of (role, content) keys already persisted for O(1) lookup.
-    # Using a set rather than a positional prefix comparison avoids false
-    # deduplication when the caller reorders or inserts messages mid-history.
-    existing_key_set: set[tuple[str, object]] = {
-        (str(row["role"]), row["content"]) for row in existing_rows
-    }
-    # Also maintain an ordered map so we can recover the row ID for parent linking.
-    existing_key_to_id: dict[tuple[str, object], uuid.UUID] = {
-        (str(row["role"]), row["content"]): uuid.UUID(str(row["id"]))
-        for row in existing_rows
-    }
+    def _normalize_content(content: Any) -> Any:
+        if isinstance(content, str):
+            return " ".join(content.split())
+        return content
 
-    # Insert only new input messages (skip already-persisted ones; skip on regeneration).
+    def _message_key(msg: Any) -> tuple[str, Any]:
+        role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+        return (role, _normalize_content(msg.content))
+
+    # Compute longest common prefix between existing and incoming messages.
+    existing_keys = [
+        (str(row["role"]), _normalize_content(row["content"])) for row in existing_rows
+    ]
+    incoming_keys = [_message_key(msg) for msg in messages]
+
+    prefix_len = 0
+    for existing_key, incoming_key in zip(existing_keys, incoming_keys):
+        if existing_key == incoming_key:
+            prefix_len += 1
+        else:
+            break
+
+    # Track the last message ID for parent linking.
+    # Start from the last message in the common prefix (from DB).
     last_input_message_id = None
+    if prefix_len > 0 and existing_rows:
+        last_input_message_id = uuid.UUID(str(existing_rows[prefix_len - 1]["id"]))
+
+    # Insert only messages after the common prefix.
+    # Apply adjacent deduplication: skip if identical to the immediately
+    # previous message (either from DB tail or just inserted).
+    last_role = None
+    last_content = None
+    if prefix_len > 0:
+        last_role, last_content = existing_keys[prefix_len - 1]
+
     if not regenerate_message_id:
-        for msg in messages:
-            msg_role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
-            key = (msg_role, msg.content)
-            if key in existing_key_set:
-                # Already persisted — reuse its ID for parent linking.
-                last_input_message_id = existing_key_to_id[key]
+        for msg in messages[prefix_len:]:
+            role, content = _message_key(msg)
+            if role == last_role and content == last_content:
+                # Identical to immediately previous message — skip.
                 continue
             msg_id = uuid.uuid4()
             message_model = TrackedMessage(
@@ -111,11 +131,8 @@ async def _fire_write(
                 metadata=msg.metadata or {},
             )
             await backend.insert_message(message_model)
-            # Track in the local set so duplicate messages within the same
-            # incoming list are also deduplicated.
-            existing_key_set.add(key)
-            existing_key_to_id[key] = msg_id
             last_input_message_id = msg_id
+            last_role, last_content = role, content
 
     # Read context after the function returned — nested calls may have set a parent.
     ctx = get_tracking_context()

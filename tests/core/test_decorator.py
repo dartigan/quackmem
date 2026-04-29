@@ -516,26 +516,159 @@ class TestTrackDecorator:
         assert isinstance(ctx.conversation_id, uuid.UUID)
 
     @pytest.mark.asyncio
-    async def test_dedup_uses_set_not_positional_prefix(self):
-        """Messages already in DB are skipped regardless of their position in the incoming list."""
+    async def test_full_history_resend_inserts_only_new_messages(self):
+        """When callers resend the full conversation history, only new tail messages are inserted."""
         wrapper = GenericWrapper()
         backend = _mock_backend()
+        fixed_session = uuid.uuid4()
 
         existing = [
-            {"id": uuid.uuid4(), "role": "user", "content": "existing", "created_at": "2024-01-01"},
+            {"id": uuid.uuid4(), "role": "system", "content": "sys", "created_at": "2024-01-01"},
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-02"},
+            {"id": uuid.uuid4(), "role": "assistant", "content": "hello", "created_at": "2024-01-03"},
         ]
         backend.get_messages = AsyncMock(return_value=existing)
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=fixed_session)
             async def my_func(messages):
                 return "response"
 
-            # "existing" appears at position 1, not position 0 — positional dedup would miss it.
             await my_func([
-                {"role": "user", "content": "new message"},
-                {"role": "user", "content": "existing"},
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+                {"role": "user", "content": "follow up"},
             ])
 
-        # 1 new input ("new message") + 1 response = 2 inserts; "existing" is deduped.
+        # 1 new input ("follow up") + 1 response = 2 inserts
         assert backend.insert_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_skips_all_input_messages(self):
+        """Exact retry of the same request skips all input messages (prefix match)."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([{"role": "user", "content": "hi"}])
+
+        # No new input messages (full prefix match) + 1 response = 1 insert
+        assert backend.insert_message.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_duplicate_messages_in_single_request_skipped(self):
+        """Adjacent duplicate messages within the same request batch are deduplicated."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "user", "content": "hi"},
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "ok"},
+            ])
+
+        # Prefix match skips first "hi". Second "hi" is adjacent-duplicate → skipped.
+        # "ok" is new + response = 2 inserts.
+        assert backend.insert_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_repeated_user_query_in_later_turn_is_inserted(self):
+        """A repeated query that is not the immediate previous message is inserted."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hi", "created_at": "2024-01-01"},
+            {"id": uuid.uuid4(), "role": "assistant", "content": "hello", "created_at": "2024-01-02"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+                {"role": "user", "content": "hi"},
+            ])
+
+        # Prefix_len = 2 (user:"hi", assistant:"hello" match DB).
+        # Remaining = [user:"hi"]. It differs from last prefix message (assistant)
+        # so it is inserted. 1 new input + 1 response = 2 inserts.
+        assert backend.insert_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_prefix_mismatch_stops_and_inserts_remaining(self):
+        """Prefix matching stops at the first mismatch; remaining messages are inserted."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "a", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "user", "content": "a"},
+                {"role": "user", "content": "b"},
+                {"role": "user", "content": "a"},
+            ])
+
+        # "a" matches prefix → skipped. "b" is new → inserted. "a" != "b" → inserted.
+        # 2 inputs + 1 response = 3 inserts.
+        assert backend.insert_message.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_dedup_normalizes_whitespace(self):
+        """Whitespace normalization is applied before prefix and adjacent comparison."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        fixed_session = uuid.uuid4()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "hello   world", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=fixed_session)
+            async def my_func(messages):
+                return "response"
+
+            await my_func([
+                {"role": "user", "content": "  hello world  "},
+            ])
+
+        # Normalized content matches → 0 new inputs + 1 response = 1 insert.
+        assert backend.insert_message.call_count == 1
