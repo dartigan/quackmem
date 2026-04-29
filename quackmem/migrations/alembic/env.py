@@ -11,7 +11,15 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+# Import the library's metadata so autogenerate can diff against it.
+# build_tables() must be called before autogenerate runs so the Table
+# objects are registered on the metadata object.
+try:
+    from quackmem.db.tables import metadata as target_metadata, build_tables
+    # Build tables with default schema so metadata is populated
+    build_tables(schema=None, prefix="")
+except Exception:
+    target_metadata = None
 
 
 def get_url() -> str:
@@ -47,6 +55,9 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         version_table="quackmem_alembic_version",
         version_table_schema=schema,
+        include_schemas=True,
+        compare_type=True,
+        compare_server_default=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -60,6 +71,9 @@ def do_run_migrations(connection):
         target_metadata=target_metadata,
         version_table="quackmem_alembic_version",
         version_table_schema=schema,
+        include_schemas=True,
+        compare_type=True,
+        compare_server_default=True,
     )
     with context.begin_transaction():
         context.run_migrations()

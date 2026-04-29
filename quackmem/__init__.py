@@ -5,7 +5,7 @@ from quackmem.core.config import TrackerConfig
 from quackmem.core.registry import register_metadata
 from quackmem.core.context import get_tracking_context
 from quackmem.core.exceptions import TrackerConfigError, MetadataValidationError
-from quackmem.migrations.runner import upgrade_db, downgrade_db
+from quackmem.migrations.runner import upgrade_db, downgrade_db, generate_migration
 
 
 def init_tracker(config: TrackerConfig) -> None:
@@ -26,4 +26,5 @@ __all__ = [
     "get_tracking_context",
     "upgrade_db",
     "downgrade_db",
+    "generate_migration",
 ]

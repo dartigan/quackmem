@@ -57,3 +57,16 @@ def downgrade_db(revision: str = "-1", schema: str = "public") -> None:
     """
     cfg = _make_alembic_config(schema=schema)
     command.downgrade(cfg, revision)
+
+
+def generate_migration(message: str, schema: str = "public") -> None:
+    """Autogenerate a new Alembic migration by diffing models against the live DB.
+
+    Requires QUACKMEM_DB_URL to be set or init_tracker() to have been called.
+
+    Args:
+        message: Description of the migration
+        schema: Target schema name (default: "public")
+    """
+    cfg = _make_alembic_config(schema=schema)
+    command.revision(cfg, message=message, autogenerate=True)

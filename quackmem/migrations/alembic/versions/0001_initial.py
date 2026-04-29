@@ -3,6 +3,8 @@
 Revision ID: 0001
 Revises:
 Create Date: 2024-01-01 00:00:00.000000
+
+Baseline migration — hand-written. Future migrations use autogenerate via generate_migration().
 """
 from __future__ import annotations
 
