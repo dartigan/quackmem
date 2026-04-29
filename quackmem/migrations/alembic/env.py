@@ -23,26 +23,44 @@ except Exception:
 
 
 def get_url() -> str:
-    """Get database URL from environment or initialized engine.
+    """Get database URL from Alembic config, environment, or initialized engine.
+
+    Resolution order:
+    1. ``sqlalchemy.url`` injected into the Alembic config by ``_make_alembic_config``
+       (set via the ``database_url`` parameter of ``upgrade_db`` / ``downgrade_db``).
+    2. ``QUACKMEM_DB_URL`` environment variable.
+    3. An already-initialised SQLAlchemy engine (requires ``init_tracker()`` to have
+       been called before running migrations).
 
     Returns:
         Database URL string
 
     Raises:
-        RuntimeError: If no database URL is available
+        RuntimeError: If no database URL is available from any source
     """
-    url = os.environ.get("QUACKMEM_DB_URL")
-    if not url:
-        try:
-            from quackmem.db.session import get_engine
+    # 1. URL injected directly into the config by _make_alembic_config
+    url = config.get_section_option("alembic", "sqlalchemy.url")
+    if url:
+        return url
 
-            engine = get_engine()
-            url = str(engine.url)
-        except Exception:
-            raise RuntimeError(
-                "Set QUACKMEM_DB_URL or call init_tracker() before running migrations"
-            )
-    return url
+    # 2. Environment variable fallback
+    url = os.environ.get("QUACKMEM_DB_URL")
+    if url:
+        return url
+
+    # 3. Already-initialised engine
+    try:
+        from quackmem.db.session import get_engine
+
+        engine = get_engine()
+        return str(engine.url)
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "No database URL available. Pass database_url to upgrade_db(), "
+        "set QUACKMEM_DB_URL, or call init_tracker() before running migrations."
+    )
 
 
 def run_migrations_offline() -> None:

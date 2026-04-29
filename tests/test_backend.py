@@ -6,19 +6,19 @@ Integration tests (marked skip_if_no_db) require QUACKMEM_TEST_DB_URL.
 from __future__ import annotations
 
 import asyncio
+import os
 from uuid import uuid4
 
-import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from quackmem.schema.enums import MessageRole, MessageStatus
 from quackmem.schema.models import TrackedSession, TrackedMessage
 
 skip_if_no_db = pytest.mark.skipif(
     not os.environ.get("QUACKMEM_TEST_DB_URL"),
     reason="QUACKMEM_TEST_DB_URL not set",
 )
-from quackmem.schema.enums import MessageRole, MessageStatus
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,14 @@ class TestBackendUnit:
         assert callable(b.update_message)
         assert callable(b.update_status)
         assert callable(b.get_messages)
+
+    def test_build_tables_is_idempotent(self):
+        """Calling build_tables twice must not raise (Bug 5 fix)."""
+        from quackmem.db.tables import build_tables
+        t1, m1 = build_tables(schema=None, prefix="")
+        t2, m2 = build_tables(schema=None, prefix="")
+        assert t1 is t2
+        assert m1 is m2
 
 
 # ---------------------------------------------------------------------------
@@ -113,8 +121,6 @@ class TestBackendMockCalls:
 
     def test_create_session_calls_execute_and_commit(self, mock_db_session):
         from quackmem.backend import PostgresBackend
-        import quackmem.backend as backend_mod
-        import sqlalchemy as sa
 
         cm, db = mock_db_session
         backend = PostgresBackend()

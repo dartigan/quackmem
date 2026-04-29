@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncIterator
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from quackmem.core.config import TrackerConfig
@@ -19,8 +20,32 @@ def init_engine(config: TrackerConfig) -> None:
         pool_size=config.pool_size,
         max_overflow=config.max_overflow,
         echo=config.echo,
+        # Recycle stale connections before handing them to the application.
+        # Prevents errors after network hiccups or Postgres restarts.
+        pool_pre_ping=True,
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+
+
+async def verify_engine() -> None:
+    """Assert the database is reachable by issuing a lightweight query.
+
+    Call this once at startup after init_engine() (or init_tracker()) to get
+    a clear TrackerConfigError if the database is unreachable, rather than
+    discovering the problem silently at the first tracked call.
+
+    Raises:
+        TrackerConfigError: If the engine has not been initialised or the
+            database cannot be reached.
+    """
+    engine = get_engine()  # raises TrackerConfigError if not initialised
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(sa.text("SELECT 1"))
+    except Exception as exc:
+        raise TrackerConfigError(
+            f"Database connectivity check failed: {exc}"
+        ) from exc
 
 
 def get_engine() -> AsyncEngine:

@@ -4,8 +4,6 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 from datetime import datetime
 
-import pytest
-
 from quackmem.schema.models import TrackedSession, TrackedMessage
 from quackmem.schema.canonical import CanonicalMessage
 from quackmem.schema.enums import MessageRole, MessageStatus
@@ -161,3 +159,24 @@ class TestCanonicalMessage:
         for role in MessageRole:
             msg = CanonicalMessage(role=role, content="x")
             assert msg.role == role
+
+
+class TestMessageStatusEnum:
+    def test_pending_value_exists(self):
+        from quackmem.schema.enums import MessageStatus
+        assert MessageStatus.pending.value == "pending"
+
+    def test_all_three_statuses_exist(self):
+        from quackmem.schema.enums import MessageStatus
+        assert {s.value for s in MessageStatus} == {"pending", "completed", "failed"}
+
+    def test_tracked_message_accepts_pending_status(self):
+        from quackmem.schema.enums import MessageStatus
+        m = TrackedMessage(
+            session_id=uuid4(),
+            conversation_id=uuid4(),
+            role=MessageRole.assistant,
+            content="hello",
+            status=MessageStatus.pending,
+        )
+        assert m.status == MessageStatus.pending.value or m.status == MessageStatus.pending

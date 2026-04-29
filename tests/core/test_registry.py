@@ -85,3 +85,16 @@ class TestRegistry:
         register_metadata({"count": int})
         # Passing string for an int key — still passes (type not enforced in v1)
         validate_metadata({"count": "not_an_int"})
+
+    def test_reset_metadata_clears_registry(self, monkeypatch):
+        """reset_metadata() empties the registry — all kwargs accepted afterward."""
+        _reset_registry(monkeypatch)
+        from quackmem.core.registry import register_metadata, reset_metadata, validate_metadata
+        register_metadata({"user_id": str})
+        reset_metadata()
+        # After reset, unknown keys must not raise
+        validate_metadata({"any_key": "value"})
+
+    def test_reset_metadata_exported_from_top_level(self):
+        from quackmem import reset_metadata
+        assert callable(reset_metadata)

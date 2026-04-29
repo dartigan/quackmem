@@ -8,7 +8,6 @@ import pytest
 
 from quackmem.wrappers.langgraph import LangGraphWrapper, langgraph_mem
 from quackmem.schema.enums import MessageRole
-from quackmem.core.config import TrackerConfig
 
 
 # ---------------------------------------------------------------------------

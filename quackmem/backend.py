@@ -42,23 +42,13 @@ def _retryable(fn):
     )(fn)
 
 
-def _session_values(session: TrackedSession) -> dict:
-    d = session.model_dump()
-    return d
-
-
-def _message_values(message: TrackedMessage) -> dict:
-    d = message.model_dump()
-    return d
-
-
 class PostgresBackend:
 
     @_retryable
     async def create_session(self, session: TrackedSession) -> None:
         """Create session row. Idempotent — silently ignores duplicate id."""
         async with get_session() as db:
-            stmt = insert(tracked_sessions).values(**_session_values(session))
+            stmt = insert(tracked_sessions).values(**session.model_dump())
             stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
             await db.execute(stmt)
             await db.commit()
@@ -67,7 +57,7 @@ class PostgresBackend:
     async def insert_message(self, message: TrackedMessage) -> None:
         """Insert a message row atomically."""
         async with get_session() as db:
-            await db.execute(insert(tracked_messages).values(**_message_values(message)))
+            await db.execute(insert(tracked_messages).values(**message.model_dump()))
             await db.commit()
 
     @_retryable

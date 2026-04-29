@@ -4,8 +4,6 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-import pytest
-
 from quackmem.core.context import (
     TrackingContext,
     get_tracking_context,
@@ -87,3 +85,26 @@ class TestTrackingContext:
         mid = uuid4()
         ctx = TrackingContext(session_id=uuid4(), conversation_id=uuid4(), message_id=mid)
         assert ctx.message_id == mid
+
+    def test_get_tracking_context_returns_last_context_after_reset(self):
+        """After the active context is reset, get_tracking_context returns the last saved ctx."""
+        from quackmem.core.context import save_last_tracking_context
+        ctx = TrackingContext(session_id=uuid4(), conversation_id=uuid4())
+        token = set_tracking_context(ctx)
+        # Simulate what the decorator does: save last, then reset active.
+        save_last_tracking_context(ctx)
+        reset_tracking_context(token)
+        # Active is now None, but last should be returned.
+        assert get_tracking_context() is ctx
+
+    def test_get_tracking_context_prefers_active_over_last(self):
+        """Active context takes precedence over the last-saved one."""
+        from quackmem.core.context import save_last_tracking_context
+        last_ctx = TrackingContext(session_id=uuid4(), conversation_id=uuid4())
+        active_ctx = TrackingContext(session_id=uuid4(), conversation_id=uuid4())
+        save_last_tracking_context(last_ctx)
+        token = set_tracking_context(active_ctx)
+        try:
+            assert get_tracking_context() is active_ctx
+        finally:
+            reset_tracking_context(token)

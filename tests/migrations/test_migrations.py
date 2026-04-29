@@ -32,6 +32,30 @@ class TestMigrationRunnerImport:
         assert callable(upgrade_db)
         assert callable(downgrade_db)
 
+    def test_upgrade_db_accepts_database_url_parameter(self):
+        """upgrade_db must accept a database_url kwarg (Bug 1 fix)."""
+        import inspect
+        from quackmem.migrations.runner import upgrade_db
+        sig = inspect.signature(upgrade_db)
+        assert "database_url" in sig.parameters
+
+    def test_downgrade_db_accepts_database_url_parameter(self):
+        import inspect
+        from quackmem.migrations.runner import downgrade_db
+        sig = inspect.signature(downgrade_db)
+        assert "database_url" in sig.parameters
+
+    def test_generate_migration_accepts_database_url_parameter(self):
+        import inspect
+        from quackmem.migrations.runner import generate_migration
+        sig = inspect.signature(generate_migration)
+        assert "database_url" in sig.parameters
+
+    def test_verify_tracker_in_public_api(self):
+        from quackmem import verify_tracker
+        import asyncio
+        assert asyncio.iscoroutinefunction(verify_tracker)
+
 
 @skip_if_no_db
 class TestMigrationIntegration:

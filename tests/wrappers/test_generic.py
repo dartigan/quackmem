@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
 from quackmem.wrappers.generic import GenericWrapper, track_conversation
 from quackmem.schema.enums import MessageRole
-from quackmem.core.config import TrackerConfig
 
 
 def _mock_backend():

@@ -1,7 +1,6 @@
 """Tests for the track() decorator."""
 from __future__ import annotations
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +11,6 @@ from quackmem.core.context import get_tracking_context
 from quackmem.core.decorator import track
 from quackmem.core.exceptions import MetadataValidationError
 from quackmem.wrappers.generic import GenericWrapper
-from quackmem.schema.enums import MessageRole
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +223,8 @@ class TestTrackDecorator:
         assert result == "still works"
 
     @pytest.mark.asyncio
-    async def test_context_vars_set_during_call_and_reset_after(self):
-        """Context is active inside the decorated fn but None afterward."""
+    async def test_context_vars_set_during_call_and_available_after(self):
+        """Context is active inside the decorated fn and available afterward via last-ctx."""
         wrapper = GenericWrapper()
         ctx_during = {}
         backend = _mock_backend()
@@ -237,11 +235,14 @@ class TestTrackDecorator:
                 ctx_during["inside"] = get_tracking_context()
                 return "ok"
 
-            assert get_tracking_context() is None
             await my_func(["hi"])
 
+        # Context was active inside the call.
         assert ctx_during["inside"] is not None
-        assert get_tracking_context() is None  # reset after
+        # After the call, get_tracking_context() returns the last-saved context (Bug 2 fix).
+        ctx_after = get_tracking_context()
+        assert ctx_after is not None
+        assert ctx_after.session_id == ctx_during["inside"].session_id
 
     @pytest.mark.asyncio
     async def test_backend_upsert_and_insert_called(self):
@@ -494,3 +495,47 @@ class TestTrackDecorator:
             assert ctx.message_id == regen_id
         finally:
             reset_tracking_context(token)
+
+    @pytest.mark.asyncio
+    async def test_get_tracking_context_available_after_decorated_call(self):
+        """get_tracking_context() returns IDs after the decorated function returns."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "ok"
+
+            await my_func(["hi"])
+
+        # Must be non-None after the call — Bug 2 fix.
+        ctx = get_tracking_context()
+        assert ctx is not None
+        assert isinstance(ctx.session_id, uuid.UUID)
+        assert isinstance(ctx.conversation_id, uuid.UUID)
+
+    @pytest.mark.asyncio
+    async def test_dedup_uses_set_not_positional_prefix(self):
+        """Messages already in DB are skipped regardless of their position in the incoming list."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+
+        existing = [
+            {"id": uuid.uuid4(), "role": "user", "content": "existing", "created_at": "2024-01-01"},
+        ]
+        backend.get_messages = AsyncMock(return_value=existing)
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "response"
+
+            # "existing" appears at position 1, not position 0 — positional dedup would miss it.
+            await my_func([
+                {"role": "user", "content": "new message"},
+                {"role": "user", "content": "existing"},
+            ])
+
+        # 1 new input ("new message") + 1 response = 2 inserts; "existing" is deduped.
+        assert backend.insert_message.call_count == 2

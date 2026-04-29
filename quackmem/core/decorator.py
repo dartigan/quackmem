@@ -10,9 +10,15 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from quackmem.wrappers.base import BaseWrapper
 
-from quackmem.core.context import TrackingContext, set_tracking_context, get_tracking_context, reset_tracking_context
+from quackmem.core.context import (
+    TrackingContext,
+    set_tracking_context,
+    get_tracking_context,
+    reset_tracking_context,
+    save_last_tracking_context,
+)
 from quackmem.core.registry import validate_metadata
-from quackmem.core.exceptions import MetadataValidationError, TrackerConfigError
+
 from quackmem.schema.models import TrackedSession, TrackedMessage
 from quackmem.schema.enums import MessageStatus
 
@@ -66,21 +72,31 @@ async def _fire_write(
     )
     await backend.create_session(session_model)
 
-    # Fetch existing messages to deduplicate — each call may pass full history.
+    # Fetch existing messages to deduplicate — callers often pass the full
+    # conversation history on every request.
     existing_rows = await backend.get_messages(session_id)
-    existing_keys = [
-        (str(row["role"]), row["content"]) for row in existing_rows
-    ]
 
-    # Insert only new input messages (skip prefix already in DB, skip on regeneration).
+    # Build a set of (role, content) keys already persisted for O(1) lookup.
+    # Using a set rather than a positional prefix comparison avoids false
+    # deduplication when the caller reorders or inserts messages mid-history.
+    existing_key_set: set[tuple[str, object]] = {
+        (str(row["role"]), row["content"]) for row in existing_rows
+    }
+    # Also maintain an ordered map so we can recover the row ID for parent linking.
+    existing_key_to_id: dict[tuple[str, object], uuid.UUID] = {
+        (str(row["role"]), row["content"]): uuid.UUID(str(row["id"]))
+        for row in existing_rows
+    }
+
+    # Insert only new input messages (skip already-persisted ones; skip on regeneration).
     last_input_message_id = None
     if not regenerate_message_id:
-        for i, msg in enumerate(messages):
+        for msg in messages:
             msg_role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
             key = (msg_role, msg.content)
-            if i < len(existing_keys) and existing_keys[i] == key:
+            if key in existing_key_set:
                 # Already persisted — reuse its ID for parent linking.
-                last_input_message_id = uuid.UUID(str(existing_rows[i]["id"]))
+                last_input_message_id = existing_key_to_id[key]
                 continue
             msg_id = uuid.uuid4()
             message_model = TrackedMessage(
@@ -95,6 +111,10 @@ async def _fire_write(
                 metadata=msg.metadata or {},
             )
             await backend.insert_message(message_model)
+            # Track in the local set so duplicate messages within the same
+            # incoming list are also deduplicated.
+            existing_key_set.add(key)
+            existing_key_to_id[key] = msg_id
             last_input_message_id = msg_id
 
     # Read context after the function returned — nested calls may have set a parent.
@@ -155,7 +175,7 @@ async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):
     session_id, conversation_id = _resolve_ids(decorator_kwargs)
     metadata = _extract_metadata(decorator_kwargs)
 
-    # MetadataValidationError and TrackerConfigError are developer errors — propagate them.
+    # MetadataValidationError is a developer error — propagate it.
     validate_metadata(metadata)
 
     ctx = TrackingContext(session_id=session_id, conversation_id=conversation_id)
@@ -171,6 +191,8 @@ async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):
     except Exception:
         logger.error("Tracking write failed", exc_info=True)
     finally:
+        # Persist context so get_tracking_context() works after this call returns.
+        save_last_tracking_context(ctx)
         reset_tracking_context(token)
 
     return result
@@ -199,6 +221,7 @@ async def _run_tracked_asyncgen(fn, wrapper, decorator_kwargs, args, fn_kwargs):
     except Exception:
         logger.error("Tracking write (stream) failed", exc_info=True)
     finally:
+        save_last_tracking_context(ctx)
         reset_tracking_context(token)
 
 
@@ -217,10 +240,19 @@ def _run_tracked_sync(fn, wrapper, decorator_kwargs, args, fn_kwargs):
         raise
 
     try:
-        asyncio.run(_fire_write(wrapper, decorator_kwargs, args, fn_kwargs, result, session_id, conversation_id, metadata))
+        coro = _fire_write(wrapper, decorator_kwargs, args, fn_kwargs, result, session_id, conversation_id, metadata)
+        try:
+            # If there is already a running event loop (FastAPI, Jupyter, etc.)
+            # we must not call asyncio.run() — schedule as a fire-and-forget task.
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            # No running loop — safe to call asyncio.run().
+            asyncio.run(coro)
     except Exception:
         logger.error("Tracking write failed", exc_info=True)
     finally:
+        save_last_tracking_context(ctx)
         reset_tracking_context(token)
 
     return result

@@ -4,8 +4,6 @@ import sqlalchemy as sa
 from sqlalchemy import MetaData
 from sqlalchemy.dialects.postgresql import JSONB
 
-from quackmem.core.config import TrackerConfig
-
 metadata = MetaData()
 tracked_sessions: sa.Table | None = None
 tracked_messages: sa.Table | None = None
@@ -16,6 +14,10 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
 
     sessions_name = f"{prefix}tracked_sessions"
     messages_name = f"{prefix}tracked_messages"
+
+    # Guard against double-initialisation (hot-reload, multiple init_tracker calls).
+    if tracked_sessions is not None and tracked_messages is not None:
+        return tracked_sessions, tracked_messages
 
     if schema:
         self_fk_ref = f"{schema}.{messages_name}.id"
@@ -65,8 +67,3 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
     )
 
     return tracked_sessions, tracked_messages
-
-
-def _apply_config(config: TrackerConfig) -> None:
-    schema = config.schema_name if config.schema_name and config.schema_name != "public" else None
-    build_tables(schema=schema, prefix=config.table_prefix)

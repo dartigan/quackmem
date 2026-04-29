@@ -8,7 +8,6 @@ import pytest
 
 from quackmem.wrappers.openai_agents import OpenAIAgentsWrapper, openai_agents_mem
 from quackmem.schema.enums import MessageRole
-from quackmem.core.config import TrackerConfig
 
 
 # ---------------------------------------------------------------------------

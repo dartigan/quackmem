@@ -10,6 +10,17 @@ def register_metadata(schema: dict[str, type]) -> None:
     _metadata_registry.update(schema)
 
 
+def reset_metadata() -> None:
+    """Clear the global metadata registry.
+
+    Useful in tests and in applications that need to re-configure metadata
+    keys after startup.  After calling this, all extra kwargs passed to
+    decorators are accepted without validation until register_metadata() is
+    called again.
+    """
+    _metadata_registry.clear()
+
+
 def validate_metadata(kwargs: dict) -> None:
     """Validate kwargs against the registry. No-op if registry is empty.
     Raises MetadataValidationError for unknown keys."""
