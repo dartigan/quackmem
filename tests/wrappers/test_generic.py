@@ -1,15 +1,21 @@
 """Tests for GenericWrapper and track_conversation decorator."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
 from convo_tracker.wrappers.generic import GenericWrapper, track_conversation
 from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.decorator import init_decorator
 from convo_tracker.core.config import TrackerConfig
+
+
+def _mock_backend():
+    backend = MagicMock()
+    backend.upsert_session = AsyncMock(return_value=None)
+    backend.insert_message = AsyncMock(return_value=None)
+    return backend
 
 
 # ---------------------------------------------------------------------------
@@ -132,18 +138,10 @@ class TestGenericWrapperExtractTokenCount:
 # ---------------------------------------------------------------------------
 
 class TestTrackConversationDecorator:
-    @pytest.fixture(autouse=True)
-    def setup_config(self):
-        cfg = TrackerConfig(
-            database_url="postgresql+asyncpg://x:x@localhost/x",
-            sync_mode=True,
-        )
-        init_decorator(cfg)
-
     @pytest.mark.asyncio
     async def test_async_function_wrapped(self):
-        write_mock = AsyncMock(return_value=None)
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        backend = _mock_backend()
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track_conversation()
             async def my_llm_call(messages):
                 return "llm output"
@@ -151,11 +149,12 @@ class TestTrackConversationDecorator:
             result = await my_llm_call([{"role": "user", "content": "test"}])
 
         assert result == "llm output"
-        write_mock.assert_called_once()
+        backend.upsert_session.assert_called_once()
+        backend.insert_message.assert_called_once()
 
     def test_sync_function_wrapped(self):
-        write_mock = AsyncMock(return_value=None)
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        backend = _mock_backend()
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track_conversation()
             def my_sync_call(messages):
                 return "sync output"
@@ -167,12 +166,14 @@ class TestTrackConversationDecorator:
     @pytest.mark.asyncio
     async def test_custom_metadata_passed(self):
         captured = {}
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        async def capture_write(session, message):
+        async def capture_upsert(session):
             captured["session"] = session
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", capture_write):
+        backend.upsert_session = capture_upsert
+
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track_conversation(user_id="bob")
             async def my_llm_call(messages):
                 return "ok"
@@ -183,8 +184,9 @@ class TestTrackConversationDecorator:
 
     @pytest.mark.asyncio
     async def test_tracking_error_does_not_break_caller(self):
-        failing_write = AsyncMock(side_effect=Exception("boom"))
-        with patch("convo_tracker.worker.tasks.sync_write_message", failing_write):
+        backend = _mock_backend()
+        backend.upsert_session = AsyncMock(side_effect=Exception("boom"))
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track_conversation()
             async def my_llm_call(messages):
                 return "result despite failure"

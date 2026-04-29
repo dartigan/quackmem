@@ -8,7 +8,6 @@ import pytest
 
 from convo_tracker.wrappers.openai_agents import OpenAIAgentsWrapper, openai_agents_mem
 from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.decorator import init_decorator
 from convo_tracker.core.config import TrackerConfig
 
 
@@ -26,6 +25,13 @@ def _make_run_result(final_output: str, total_tokens: int | None = None):
     else:
         result.usage = None
     return result
+
+
+def _mock_backend():
+    backend = MagicMock()
+    backend.upsert_session = AsyncMock(return_value=None)
+    backend.insert_message = AsyncMock(return_value=None)
+    return backend
 
 
 # ---------------------------------------------------------------------------
@@ -140,20 +146,12 @@ class TestOpenAIAgentsWrapperExtractTokenCount:
 # ---------------------------------------------------------------------------
 
 class TestOpenAIAgentsMemDecorator:
-    @pytest.fixture(autouse=True)
-    def setup_config(self):
-        cfg = TrackerConfig(
-            database_url="postgresql+asyncpg://x:x@localhost/x",
-            sync_mode=True,
-        )
-        init_decorator(cfg)
-
     @pytest.mark.asyncio
     async def test_wraps_async_function_correctly(self):
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
         run_result = _make_run_result("agent response", total_tokens=10)
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @openai_agents_mem()
             async def run_agent(input: str):
                 return run_result
@@ -161,18 +159,21 @@ class TestOpenAIAgentsMemDecorator:
             result = await run_agent("what is the capital of France?")
 
         assert result is run_result
-        write_mock.assert_called_once()
+        backend.upsert_session.assert_called_once()
+        backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_passes_session_id_to_track(self):
-        write_mock = AsyncMock(return_value=None)
         captured = {}
+        backend = _mock_backend()
         fixed_session = uuid4()
 
-        async def capture_write(session, message):
+        async def capture_upsert(session):
             captured["session"] = session
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", capture_write):
+        backend.upsert_session = capture_upsert
+
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @openai_agents_mem(session_id=fixed_session)
             async def run_agent(input: str):
                 return _make_run_result("done")

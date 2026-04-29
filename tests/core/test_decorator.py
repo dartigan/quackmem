@@ -9,7 +9,7 @@ import pytest
 
 from convo_tracker.core.config import TrackerConfig
 from convo_tracker.core.context import get_tracking_context
-from convo_tracker.core.decorator import track, init_decorator
+from convo_tracker.core.decorator import track
 from convo_tracker.core.exceptions import MetadataValidationError
 from convo_tracker.wrappers.generic import GenericWrapper
 from convo_tracker.schema.enums import MessageRole
@@ -19,10 +19,9 @@ from convo_tracker.schema.enums import MessageRole
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_config(sync_mode: bool = True) -> TrackerConfig:
+def _make_config() -> TrackerConfig:
     return TrackerConfig(
         database_url="postgresql+asyncpg://test:test@localhost/test",
-        sync_mode=sync_mode,
     )
 
 
@@ -31,9 +30,12 @@ def _reset_registry(monkeypatch):
     monkeypatch.setattr(reg_module, "_metadata_registry", {})
 
 
-def _noop_sync_write():
-    """Return a coroutine mock for sync_write_message."""
-    return AsyncMock(return_value=None)
+def _mock_backend():
+    """Return a mock backend with async methods."""
+    backend = MagicMock()
+    backend.upsert_session = AsyncMock(return_value=None)
+    backend.insert_message = AsyncMock(return_value=None)
+    return backend
 
 
 # ---------------------------------------------------------------------------
@@ -41,17 +43,17 @@ def _noop_sync_write():
 # ---------------------------------------------------------------------------
 
 class TestTrackDecorator:
-    """Tests for the track() decorator with sync_mode=True and mocked DB."""
+    """Tests for the track() decorator with mocked DB."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, sample_config, monkeypatch):
-        """Initialize decorator config and reset registry before each test."""
+    def setup(self, monkeypatch):
+        """Reset registry before each test."""
         _reset_registry(monkeypatch)
-        init_decorator(sample_config)
 
     def test_sync_function_is_called_and_returns_result(self):
         wrapper = GenericWrapper()
-        with patch("convo_tracker.worker.tasks.sync_write_message", new=_noop_sync_write()):
+        backend = _mock_backend()
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             def my_func(messages):
                 return "the answer"
@@ -62,8 +64,8 @@ class TestTrackDecorator:
     @pytest.mark.asyncio
     async def test_async_function_is_called_and_returns_result(self):
         wrapper = GenericWrapper()
-        write_mock = AsyncMock(return_value=None)
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        backend = _mock_backend()
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_async_func(messages):
                 return "async result"
@@ -76,9 +78,9 @@ class TestTrackDecorator:
         """When no IDs provided, UUIDs are auto-generated."""
         wrapper = GenericWrapper()
         captured = {}
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -97,9 +99,9 @@ class TestTrackDecorator:
         fixed_session = uuid.uuid4()
         fixed_conv = uuid.uuid4()
         captured = {}
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper, session_id=fixed_session, conversation_id=fixed_conv)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -116,9 +118,9 @@ class TestTrackDecorator:
         wrapper = GenericWrapper()
         fixed_session = uuid.uuid4()
         captured = {}
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper, session_id=str(fixed_session))
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
@@ -135,9 +137,9 @@ class TestTrackDecorator:
         register_metadata({"user_id": str})
 
         wrapper = GenericWrapper()
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper, bad_key="oops")
             async def my_func(messages):
                 return "ok"
@@ -149,9 +151,10 @@ class TestTrackDecorator:
     async def test_tracking_failure_does_not_raise_to_caller(self):
         """If DB write fails, the result is still returned (tracking is fire-and-forget)."""
         wrapper = GenericWrapper()
-        failing_write = AsyncMock(side_effect=RuntimeError("db down"))
+        backend = _mock_backend()
+        backend.upsert_session = AsyncMock(side_effect=RuntimeError("db down"))
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", failing_write):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 return "still works"
@@ -165,9 +168,9 @@ class TestTrackDecorator:
         """Context is active inside the decorated fn but None afterward."""
         wrapper = GenericWrapper()
         ctx_during = {}
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 ctx_during["inside"] = get_tracking_context()
@@ -180,19 +183,20 @@ class TestTrackDecorator:
         assert get_tracking_context() is None  # reset after
 
     @pytest.mark.asyncio
-    async def test_sync_mode_calls_sync_write_message(self):
-        """With sync_mode=True, _fire_write should call sync_write_message."""
+    async def test_backend_upsert_and_insert_called(self):
+        """_fire_write must call upsert_session then insert_message on the backend."""
         wrapper = GenericWrapper()
-        write_mock = AsyncMock(return_value=None)
+        backend = _mock_backend()
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper)
             async def my_func(messages):
                 return "response"
 
             await my_func(["input"])
 
-        write_mock.assert_called_once()
+        backend.upsert_session.assert_called_once()
+        backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_metadata_passed_to_session_model(self):
@@ -200,11 +204,13 @@ class TestTrackDecorator:
         wrapper = GenericWrapper()
         captured_args = {}
 
-        async def capture_write(session_model, message_model):
+        async def fake_upsert(session_model):
             captured_args["session"] = session_model
-            captured_args["message"] = message_model
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", capture_write):
+        backend = _mock_backend()
+        backend.upsert_session = fake_upsert
+
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @track(wrapper, user_id="alice")
             async def my_func(messages):
                 return "ok"

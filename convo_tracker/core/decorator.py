@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from convo_tracker.wrappers.base import BaseWrapper
 
-from convo_tracker.core.config import TrackerConfig
 from convo_tracker.core.context import TrackingContext, set_tracking_context, get_tracking_context, reset_tracking_context
 from convo_tracker.core.registry import validate_metadata
 from convo_tracker.core.exceptions import MetadataValidationError, TrackerConfigError
@@ -20,14 +19,6 @@ from convo_tracker.schema.enums import MessageStatus
 logger = logging.getLogger(__name__)
 
 _RESERVED_KEYS = frozenset({"session_id", "conversation_id"})
-
-_config: TrackerConfig | None = None
-
-
-def init_decorator(config: TrackerConfig) -> None:
-    """Called by init_tracker to register the config with the decorator."""
-    global _config
-    _config = config
 
 
 def _resolve_ids(decorator_kwargs: dict) -> tuple[uuid.UUID, uuid.UUID]:
@@ -85,15 +76,10 @@ async def _fire_write(
         metadata=response.metadata or {},
     )
 
-    cfg = _config
-    if cfg is not None and cfg.sync_mode:
-        from convo_tracker.worker.tasks import sync_write_message
-        await sync_write_message(session_model, message_model)
-    else:
-        from convo_tracker.worker.tasks import write_message
-        write_message.apply_async(
-            args=[session_model.model_dump(mode="json"), message_model.model_dump(mode="json")],
-        )
+    from convo_tracker.backend import get_backend
+    backend = get_backend()
+    await backend.upsert_session(session_model)
+    await backend.insert_message(message_model)
 
 
 async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):

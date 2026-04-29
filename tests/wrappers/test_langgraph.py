@@ -8,7 +8,6 @@ import pytest
 
 from convo_tracker.wrappers.langgraph import LangGraphWrapper, langgraph_mem
 from convo_tracker.schema.enums import MessageRole
-from convo_tracker.core.decorator import init_decorator
 from convo_tracker.core.config import TrackerConfig
 
 
@@ -28,6 +27,13 @@ def _make_lc_message(class_name: str, content: str, usage_metadata: dict | None 
     else:
         msg.usage_metadata = None
     return msg
+
+
+def _mock_backend():
+    backend = MagicMock()
+    backend.upsert_session = AsyncMock(return_value=None)
+    backend.insert_message = AsyncMock(return_value=None)
+    return backend
 
 
 # ---------------------------------------------------------------------------
@@ -159,18 +165,10 @@ class TestLangGraphWrapperExtractTokenCount:
 # ---------------------------------------------------------------------------
 
 class TestLangGraphMemDecorator:
-    @pytest.fixture(autouse=True)
-    def setup_config(self):
-        cfg = TrackerConfig(
-            database_url="postgresql+asyncpg://x:x@localhost/x",
-            sync_mode=True,
-        )
-        init_decorator(cfg)
-
     @pytest.mark.asyncio
     async def test_wraps_async_function(self):
-        write_mock = AsyncMock(return_value=None)
-        with patch("convo_tracker.worker.tasks.sync_write_message", write_mock):
+        backend = _mock_backend()
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             @langgraph_mem()
             async def my_node(state: dict) -> dict:
                 return {"messages": [_make_lc_message("AIMessage", "wrapped result")]}
@@ -179,17 +177,20 @@ class TestLangGraphMemDecorator:
             result = await my_node(state)
 
         assert result["messages"][0].content == "wrapped result"
-        write_mock.assert_called_once()
+        backend.upsert_session.assert_called_once()
+        backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_passes_kwargs_to_track(self):
-        write_mock = AsyncMock(return_value=None)
         captured = {}
+        backend = _mock_backend()
 
-        async def capture_write(session, message):
+        async def capture_upsert(session):
             captured["session"] = session
 
-        with patch("convo_tracker.worker.tasks.sync_write_message", capture_write):
+        backend.upsert_session = capture_upsert
+
+        with patch("convo_tracker.backend.get_backend", return_value=backend):
             fixed_conv = uuid4()
 
             @langgraph_mem(conversation_id=fixed_conv)

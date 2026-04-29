@@ -11,7 +11,5 @@ class MessageRole(str, Enum):
 
 
 class MessageStatus(str, Enum):
-    pending = "pending"
-    streaming = "streaming"
     completed = "completed"
     failed = "failed"

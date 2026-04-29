@@ -27,6 +27,6 @@ class TrackedMessage(BaseModel):
     role: MessageRole
     content: str | list[dict]
     token_count: int | None = None
-    status: MessageStatus = MessageStatus.pending
+    status: MessageStatus = MessageStatus.completed
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict = Field(default_factory=dict)

@@ -76,10 +76,10 @@ class TestTrackedMessage:
         m = self._make()
         assert isinstance(m.created_at, datetime)
 
-    def test_default_status_is_pending(self):
+    def test_default_status_is_completed(self):
         m = self._make()
         # use_enum_values=True — status is stored as string value
-        assert m.status == MessageStatus.pending.value or m.status == MessageStatus.pending
+        assert m.status == MessageStatus.completed.value or m.status == MessageStatus.completed
 
     def test_explicit_status(self):
         m = self._make(status=MessageStatus.completed)

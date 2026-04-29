@@ -30,7 +30,6 @@ def sample_config():
     from convo_tracker.core.config import TrackerConfig
     return TrackerConfig(
         database_url="postgresql+asyncpg://test:test@localhost/test",
-        sync_mode=True,
     )
 
 
