@@ -18,16 +18,12 @@ from quackmem.schema.enums import MessageStatus
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_KEYS = frozenset({"session_id", "conversation_id"})
+_RESERVED_KEYS = frozenset({"conversation_id"})
 
 
 def _resolve_ids(decorator_kwargs: dict) -> tuple[uuid.UUID, uuid.UUID]:
-    session_id = decorator_kwargs.get("session_id")
+    session_id = uuid.uuid4()  # always generated
     conversation_id = decorator_kwargs.get("conversation_id")
-    if session_id is None:
-        session_id = uuid.uuid4()
-    elif not isinstance(session_id, uuid.UUID):
-        session_id = uuid.UUID(str(session_id))
     if conversation_id is None:
         conversation_id = uuid.uuid4()
     elif not isinstance(conversation_id, uuid.UUID):

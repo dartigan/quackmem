@@ -170,7 +170,7 @@ async def call_llm(messages: list[dict]) -> str:
     ...
 ```
 
-All three decorators accept the same keyword arguments: `session_id`, `conversation_id`, plus any metadata keys registered via `register_metadata` (e.g. `user_id`, `agent_id`).
+All three decorators accept the same keyword arguments: `conversation_id` (optional; auto-generated if omitted), plus any metadata keys registered via `register_metadata` (e.g. `user_id`, `agent_id`). `session_id` and `message_id` are always library-managed.
 
 ## Configuration — `TrackerConfig`
 
@@ -216,15 +216,19 @@ If `register_metadata` is never called, all extra kwargs are accepted without va
 
 `conversation_id` groups multiple sessions over time — it represents the full conversation history between a user and an agent across multiple requests. `session_id` identifies a single agent invocation (one decorated function call).
 
+- **`session_id`** — always auto-generated per decorated call. Never pass to the decorator. Access via `get_tracking_context().session_id` after the call.
+- **`conversation_id`** — developer-supplied (or auto-generated if omitted). Pass the same `conversation_id` across requests to stitch sessions into a continuous conversation thread.
+
 Pass the same `conversation_id` across requests to stitch sessions into a continuous conversation thread:
 
 ```python
-# First request — client stores the returned conversation_id
-@langgraph_mem(user_id="u1", conversation_id="conv-abc")
-async def node(state): ...
+# First request
+ctx = get_tracking_context()
+conversation_id = ctx.conversation_id  # auto-generated on first call
+client_stores_this = conversation_id
 
-# Subsequent requests — pass the same conversation_id back
-@langgraph_mem(user_id="u1", conversation_id="conv-abc")
+# Subsequent requests — pass the stored conversation_id back
+@langgraph_mem(user_id="u1", conversation_id=client_stores_this)
 async def node(state): ...
 ```
 
@@ -236,8 +240,8 @@ from quackmem import get_tracking_context
 result = await node(state)
 ctx = get_tracking_context()
 
-print(ctx.session_id)       # UUID of this specific invocation
-print(ctx.conversation_id)  # UUID grouping all related sessions
+print(ctx.session_id)       # UUID of this specific invocation (auto-generated)
+print(ctx.conversation_id)  # UUID grouping all related sessions (developer-provided or auto-generated)
 ```
 
 ## Database schema

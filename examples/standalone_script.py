@@ -61,8 +61,8 @@ async def main():
 
     print(f"User:     {messages[0]['content']}")
     print(f"Assistant: {response}")
-    print(f"Session ID: {ctx.session_id if ctx else 'not tracked'}")
     print(f"Conversation ID: {ctx.conversation_id if ctx else 'not tracked'}")
+    print(f"(session_id is auto-generated per request: {ctx.session_id if ctx else 'not tracked'})")
 
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ async def agent(req: AgentRequest):
     return {
         "response": result.final_output,
         "conversation_id": conversation_id,
-        "session_id": str(ctx.session_id) if ctx else None,
+        # session_id is auto-generated per request; store conversation_id to link threads
     }
 
 

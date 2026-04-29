@@ -163,10 +163,10 @@ class TestOpenAIAgentsMemDecorator:
         backend.insert_message.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_passes_session_id_to_track(self):
+    async def test_session_id_always_auto_generated(self):
+        """session_id is always auto-generated; not taken from kwargs."""
         captured = {}
         backend = _mock_backend()
-        fixed_session = uuid4()
 
         async def capture_upsert(session):
             captured["session"] = session
@@ -174,10 +174,11 @@ class TestOpenAIAgentsMemDecorator:
         backend.upsert_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @openai_agents_mem(session_id=fixed_session)
+            @openai_agents_mem()
             async def run_agent(input: str):
                 return _make_run_result("done")
 
             await run_agent("hello")
 
-        assert captured["session"].id == fixed_session
+        # session_id should be a UUID (auto-generated)
+        assert isinstance(captured["session"].id, uuid4().__class__)

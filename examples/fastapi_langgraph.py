@@ -75,7 +75,7 @@ async def chat(req: ChatRequest):
     return {
         "response": result["messages"][-1]["content"],
         "conversation_id": conversation_id,
-        "session_id": str(ctx.session_id) if ctx else None,
+        # session_id is auto-generated per request; store conversation_id to link threads
     }
 
 

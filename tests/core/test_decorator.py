@@ -75,7 +75,7 @@ class TestTrackDecorator:
 
     @pytest.mark.asyncio
     async def test_auto_generated_session_and_conversation_id(self):
-        """When no IDs provided, UUIDs are auto-generated."""
+        """When no IDs provided, both UUIDs are auto-generated."""
         wrapper = GenericWrapper()
         captured = {}
         backend = _mock_backend()
@@ -94,15 +94,36 @@ class TestTrackDecorator:
         assert isinstance(ctx.conversation_id, uuid.UUID)
 
     @pytest.mark.asyncio
-    async def test_provided_session_and_conversation_id_are_used(self):
+    async def test_session_id_always_auto_generated(self):
+        """session_id is always auto-generated, never from kwargs."""
         wrapper = GenericWrapper()
-        fixed_session = uuid.uuid4()
+        captured_ids = []
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            # Even if a developer tries to pass session_id as metadata,
+            # it gets treated as metadata and is not used as the actual session_id
+            @track(wrapper, session_id="should-be-ignored")
+            async def my_func(messages):
+                captured_ids.append(get_tracking_context().session_id)
+                return "ok"
+
+            await my_func(["hello"])
+
+        # Verify session_id is a UUID (auto-generated), not a string
+        assert len(captured_ids) == 1
+        assert isinstance(captured_ids[0], uuid.UUID)
+
+    @pytest.mark.asyncio
+    async def test_provided_conversation_id_is_used(self):
+        """When conversation_id is provided, it is used; session_id is always auto-generated."""
+        wrapper = GenericWrapper()
         fixed_conv = uuid.uuid4()
         captured = {}
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, session_id=fixed_session, conversation_id=fixed_conv)
+            @track(wrapper, conversation_id=fixed_conv)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
                 return "ok"
@@ -110,25 +131,28 @@ class TestTrackDecorator:
             await my_func(["hello"])
 
         ctx = captured["ctx"]
-        assert ctx.session_id == fixed_session
+        # session_id is always auto-generated
+        assert isinstance(ctx.session_id, uuid.UUID)
+        # conversation_id is the provided one
         assert ctx.conversation_id == fixed_conv
 
     @pytest.mark.asyncio
-    async def test_string_session_id_converted_to_uuid(self):
+    async def test_string_conversation_id_converted_to_uuid(self):
+        """String conversation_id is converted to UUID."""
         wrapper = GenericWrapper()
-        fixed_session = uuid.uuid4()
+        fixed_conv = uuid.uuid4()
         captured = {}
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, session_id=str(fixed_session))
+            @track(wrapper, conversation_id=str(fixed_conv))
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
                 return "ok"
 
             await my_func(["x"])
 
-        assert captured["ctx"].session_id == fixed_session
+        assert captured["ctx"].conversation_id == fixed_conv
 
     @pytest.mark.asyncio
     async def test_metadata_validation_error_propagates(self, monkeypatch):
