@@ -17,8 +17,11 @@ def mock_backend():
         backend = MagicMock()
         backend.create_session = AsyncMock(return_value=None)
         backend.insert_message = AsyncMock(return_value=None)
+        backend.update_message = AsyncMock(return_value=None)
         backend.update_status = AsyncMock(return_value=None)
         backend.get_messages = AsyncMock(return_value=[])
+        backend.reserve_assistant_message = AsyncMock(side_effect=lambda r: r)
+        backend.finalize_message = AsyncMock(return_value=None)
         mock_get.return_value = backend
         yield backend
 

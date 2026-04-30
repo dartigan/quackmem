@@ -35,6 +35,8 @@ def _mock_backend():
     backend.insert_message = AsyncMock(return_value=None)
     backend.update_message = AsyncMock(return_value=None)
     backend.get_messages = AsyncMock(return_value=[])
+    backend.reserve_assistant_message = AsyncMock(side_effect=lambda r: r)
+    backend.finalize_message = AsyncMock(return_value=None)
     return backend
 
 
@@ -207,11 +209,15 @@ class TestTrackDecorator:
                 await my_func(["hello"])
 
     @pytest.mark.asyncio
-    async def test_tracking_failure_does_not_raise_to_caller(self):
-        """If DB write fails, the result is still returned (tracking is fire-and-forget)."""
+    async def test_db_failure_does_not_raise_to_caller(self):
+        """If a DB write fails with a SQLAlchemyError, the result is still returned."""
+        from sqlalchemy.exc import OperationalError
+
         wrapper = GenericWrapper()
         backend = _mock_backend()
-        backend.create_session = AsyncMock(side_effect=RuntimeError("db down"))
+        backend.create_session = AsyncMock(
+            side_effect=OperationalError("stmt", {}, Exception("db down"))
+        )
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @track(wrapper)
@@ -219,6 +225,39 @@ class TestTrackDecorator:
                 return "still works"
 
             result = await my_func(["hello"])
+
+        assert result == "still works"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_in_tracking_propagates(self):
+        """Programming errors (TypeError, AttributeError, etc.) inside the
+        tracking write must NOT be swallowed — they indicate a bug in
+        quackmem or a wrapper, and the caller should see them."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.create_session = AsyncMock(side_effect=TypeError("bug in wrapper"))
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "ok"
+
+            with pytest.raises(TypeError, match="bug in wrapper"):
+                await my_func(["hello"])
+
+    @pytest.mark.asyncio
+    async def test_network_error_in_tracking_does_not_raise(self):
+        """OSError (network/connection failures) is treated as expected — caller still gets result."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.create_session = AsyncMock(side_effect=OSError("connection refused"))
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "still works"
+
+            result = await my_func(["hi"])
 
         assert result == "still works"
 
@@ -258,11 +297,14 @@ class TestTrackDecorator:
             await my_func(["input"])
 
         backend.create_session.assert_called_once()
-        backend.insert_message.assert_called_once()
+        # Bare string input is not extracted by GenericWrapper; assistant uses reserve+finalize.
+        assert backend.insert_message.call_count == 0
+        backend.reserve_assistant_message.assert_called_once()
+        backend.finalize_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_all_input_messages_inserted_on_fresh_session(self):
-        """All extracted input messages are inserted plus the response."""
+        """All extracted input messages are inserted; assistant is reserved+finalized."""
         wrapper = GenericWrapper()
         backend = _mock_backend()
         backend.get_messages = AsyncMock(return_value=[])
@@ -278,8 +320,10 @@ class TestTrackDecorator:
             ])
 
         backend.create_session.assert_called_once()
-        # 2 input messages + 1 response = 3 insert_message calls
-        assert backend.insert_message.call_count == 3
+        # 2 input messages inserted; assistant reserved+finalized (not insert_message)
+        assert backend.insert_message.call_count == 2
+        backend.reserve_assistant_message.assert_called_once()
+        backend.finalize_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_regenerate_message_id_calls_update_not_insert(self):
@@ -398,8 +442,9 @@ class TestTrackDecorator:
             ])
 
         backend.create_session.assert_called_once()
-        # 1 new input message + 1 response = 2 insert_message calls
-        assert backend.insert_message.call_count == 2
+        # 1 new input message; assistant reserved+finalized.
+        assert backend.insert_message.call_count == 1
+        backend.reserve_assistant_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_fresh_session_inserts_all_messages(self):
@@ -418,13 +463,13 @@ class TestTrackDecorator:
                 {"role": "user", "content": "hi"},
             ])
 
-        assert backend.insert_message.call_count == 3
+        assert backend.insert_message.call_count == 2
 
 
     @pytest.mark.asyncio
-    async def test_fire_write_sets_context_message_id(self):
-        """After inserting a new response, _fire_write updates ctx.message_id."""
-        from quackmem.core.decorator import _fire_write
+    async def test_pre_write_sets_context_message_id(self):
+        """_pre_write reserves an assistant message and updates ctx.message_id."""
+        from quackmem.core.decorator import _pre_write
         from quackmem.core.context import (
             TrackingContext,
             set_tracking_context,
@@ -442,26 +487,26 @@ class TestTrackDecorator:
 
         try:
             with patch("quackmem.backend.get_backend", return_value=backend):
-                await _fire_write(
+                reserved = await _pre_write(
                     wrapper,
                     {},
                     ([{"role": "user", "content": "hi"}],),
                     {},
-                    "response",
                     sid,
                     cid,
                     {},
                 )
 
-            assert ctx.message_id is not None
+            assert reserved is not None
+            assert ctx.message_id == reserved
             assert isinstance(ctx.message_id, uuid.UUID)
         finally:
             reset_tracking_context(token)
 
     @pytest.mark.asyncio
     async def test_regenerate_sets_context_message_id(self):
-        """Regeneration sets ctx.message_id to the existing message ID for chaining."""
-        from quackmem.core.decorator import _fire_write
+        """Regeneration: _pre_write sets ctx.message_id to the existing message ID."""
+        from quackmem.core.decorator import _pre_write
         from quackmem.core.context import (
             TrackingContext,
             set_tracking_context,
@@ -480,18 +525,18 @@ class TestTrackDecorator:
 
         try:
             with patch("quackmem.backend.get_backend", return_value=backend):
-                await _fire_write(
+                reserved = await _pre_write(
                     wrapper,
                     {"regenerate_message_id": regen_id},
                     ([{"role": "user", "content": "hi"}],),
                     {},
-                    "regenerated",
                     sid,
                     cid,
                     {},
                 )
 
-            # On regeneration, ctx.message_id is set to the existing message ID
+            # Regeneration returns None (no new reservation) and sets ctx to regen_id.
+            assert reserved is None
             assert ctx.message_id == regen_id
         finally:
             reset_tracking_context(token)
@@ -541,8 +586,8 @@ class TestTrackDecorator:
                 {"role": "user", "content": "follow up"},
             ])
 
-        # 1 new input ("follow up") + 1 response = 2 inserts
-        assert backend.insert_message.call_count == 2
+        # 1 new input ("follow up"); assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 1
 
     @pytest.mark.asyncio
     async def test_retry_skips_all_input_messages(self):
@@ -563,8 +608,9 @@ class TestTrackDecorator:
 
             await my_func([{"role": "user", "content": "hi"}])
 
-        # No new input messages (full prefix match) + 1 response = 1 insert
-        assert backend.insert_message.call_count == 1
+        # No new input messages (full prefix match); assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 0
+        backend.reserve_assistant_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_duplicate_messages_in_single_request_skipped(self):
@@ -590,8 +636,8 @@ class TestTrackDecorator:
             ])
 
         # Prefix match skips first "hi". Second "hi" is adjacent-duplicate → skipped.
-        # "ok" is new + response = 2 inserts.
-        assert backend.insert_message.call_count == 2
+        # "ok" is new = 1 input insert; assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 1
 
     @pytest.mark.asyncio
     async def test_repeated_user_query_in_later_turn_is_inserted(self):
@@ -619,8 +665,8 @@ class TestTrackDecorator:
 
         # Prefix_len = 2 (user:"hi", assistant:"hello" match DB).
         # Remaining = [user:"hi"]. It differs from last prefix message (assistant)
-        # so it is inserted. 1 new input + 1 response = 2 inserts.
-        assert backend.insert_message.call_count == 2
+        # so it is inserted. 1 new input; assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 1
 
     @pytest.mark.asyncio
     async def test_prefix_mismatch_stops_and_inserts_remaining(self):
@@ -646,8 +692,8 @@ class TestTrackDecorator:
             ])
 
         # "a" matches prefix → skipped. "b" is new → inserted. "a" != "b" → inserted.
-        # 2 inputs + 1 response = 3 inserts.
-        assert backend.insert_message.call_count == 3
+        # 2 input inserts; assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 2
 
     @pytest.mark.asyncio
     async def test_dedup_normalizes_whitespace(self):
@@ -670,5 +716,70 @@ class TestTrackDecorator:
                 {"role": "user", "content": "  hello world  "},
             ])
 
-        # Normalized content matches → 0 new inputs + 1 response = 1 insert.
-        assert backend.insert_message.call_count == 1
+        # Normalized content matches → 0 new inputs; assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 0
+        backend.reserve_assistant_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_function_error_finalizes_message_as_failed(self):
+        """When the wrapped fn raises, the reserved message is finalized with status=failed."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                raise RuntimeError("model exploded")
+
+            with pytest.raises(RuntimeError, match="model exploded"):
+                await my_func([{"role": "user", "content": "hi"}])
+
+        backend.reserve_assistant_message.assert_called_once()
+        backend.finalize_message.assert_called_once()
+        finalization = backend.finalize_message.call_args.args[0]
+        # use_enum_values dumps the enum to its string value at construction.
+        assert finalization.status == "failed"
+        assert "RuntimeError" in finalization.error
+        assert "model exploded" in finalization.error
+
+    @pytest.mark.asyncio
+    async def test_pre_write_runs_before_function_body(self):
+        """ctx.message_id must be set inside fn body — proving pre-write ran first."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        captured = {}
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                captured["mid"] = get_tracking_context().message_id
+                return "ok"
+
+            await my_func([{"role": "user", "content": "hi"}])
+
+        assert captured["mid"] is not None
+        assert isinstance(captured["mid"], uuid.UUID)
+        # And it equals the reserved id used by finalize_message.
+        finalization = backend.finalize_message.call_args.args[0]
+        assert finalization.message_id == captured["mid"]
+
+    @pytest.mark.asyncio
+    async def test_asyncgen_error_finalizes_message_as_failed(self):
+        """Streaming error path also finalizes with status=failed."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_stream(messages):
+                yield "partial"
+                raise RuntimeError("stream broke")
+
+            with pytest.raises(RuntimeError, match="stream broke"):
+                async for _ in my_stream([{"role": "user", "content": "hi"}]):
+                    pass
+
+        backend.reserve_assistant_message.assert_called_once()
+        backend.finalize_message.assert_called_once()
+        finalization = backend.finalize_message.call_args.args[0]
+        assert finalization.status == "failed"

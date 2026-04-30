@@ -32,6 +32,8 @@ def _mock_backend():
     backend.insert_message = AsyncMock(return_value=None)
     backend.update_message = AsyncMock(return_value=None)
     backend.get_messages = AsyncMock(return_value=[])
+    backend.reserve_assistant_message = AsyncMock(side_effect=lambda r: r)
+    backend.finalize_message = AsyncMock(return_value=None)
     return backend
 
 
@@ -161,8 +163,10 @@ class TestOpenAIAgentsMemDecorator:
 
         assert result is run_result
         backend.create_session.assert_called_once()
-        # 1 input message + 1 response = 2 insert_message calls
-        assert backend.insert_message.call_count == 2
+        # 1 input message inserted; assistant via reserve+finalize.
+        assert backend.insert_message.call_count == 1
+        backend.reserve_assistant_message.assert_called_once()
+        backend.finalize_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_session_id_auto_generated_when_not_provided(self):
