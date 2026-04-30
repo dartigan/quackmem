@@ -1,7 +1,7 @@
 """Unit tests for engine lifecycle helpers (dispose_engine, shutdown_tracker)."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -96,3 +96,68 @@ async def test_shutdown_tracker_returns_pending_count_on_timeout():
         result = await quackmem.shutdown_tracker(drain_timeout=0.01)
 
     assert result == 3
+
+
+@pytest.mark.asyncio
+async def test_verify_engine_raises_when_uninitialised():
+    """verify_engine must raise TrackerConfigError before init_engine has run."""
+    from quackmem.core.exceptions import TrackerConfigError
+    from quackmem.db.session import verify_engine
+
+    with pytest.raises(TrackerConfigError, match="Engine not initialized"):
+        await verify_engine()
+
+
+@pytest.mark.asyncio
+async def test_verify_engine_wraps_connection_failure():
+    """verify_engine must wrap a failing SELECT 1 in TrackerConfigError, not leak it."""
+    from quackmem.core.exceptions import TrackerConfigError
+    from quackmem.db import session as sess_mod
+    from quackmem.db.session import verify_engine
+
+    fake_conn = AsyncMock()
+    fake_conn.execute = AsyncMock(side_effect=OSError("boom"))
+
+    class _CM:
+        async def __aenter__(self):
+            return fake_conn
+        async def __aexit__(self, *a):
+            return False
+
+    fake_engine = AsyncMock()
+    fake_engine.connect = MagicMock(return_value=_CM())
+    sess_mod._engine = fake_engine
+
+    with pytest.raises(TrackerConfigError, match="Database connectivity check failed"):
+        await verify_engine()
+
+
+@pytest.mark.asyncio
+async def test_get_session_raises_when_uninitialised():
+    """get_session must raise TrackerConfigError if init_engine has not been called."""
+    from quackmem.core.exceptions import TrackerConfigError
+    from quackmem.db.session import get_session
+
+    with pytest.raises(TrackerConfigError, match="Session factory not initialized"):
+        async with get_session():
+            pass
+
+
+def test_get_config_raises_when_uninitialised():
+    """get_config must raise TrackerConfigError before init_engine has run."""
+    from quackmem.core.exceptions import TrackerConfigError
+    from quackmem.db import session as sess_mod
+    from quackmem.db.session import get_config
+
+    sess_mod._config = None
+    with pytest.raises(TrackerConfigError, match="Config not initialized"):
+        get_config()
+
+
+def test_get_engine_raises_when_uninitialised():
+    """get_engine must raise TrackerConfigError before init_engine has run."""
+    from quackmem.core.exceptions import TrackerConfigError
+    from quackmem.db.session import get_engine
+
+    with pytest.raises(TrackerConfigError, match="Engine not initialized"):
+        get_engine()

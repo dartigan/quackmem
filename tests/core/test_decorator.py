@@ -779,3 +779,98 @@ class TestTrackDecorator:
         backend.finalize_message.assert_called_once()
         finalization = backend.finalize_message.call_args.args[0]
         assert finalization.status == "failed"
+
+
+class TestRegenerateMessageId:
+    """The decorator's `regenerate_message_id` mode rewrites an existing row."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_registry(self, monkeypatch):
+        from quackmem.core import registry as reg_module
+        monkeypatch.setattr(reg_module, "_metadata_registry", {})
+
+    @pytest.mark.asyncio
+    async def test_regenerate_calls_update_message_with_existing_id(self):
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        existing_id = uuid.uuid4()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=uuid.uuid4(), regenerate_message_id=existing_id)
+            async def my_func(messages):
+                return "regenerated"
+
+            await my_func([{"role": "user", "content": "hi"}])
+
+        backend.update_message.assert_awaited_once()
+        delivered_id = backend.update_message.call_args.args[0]
+        assert delivered_id == existing_id
+        # In regenerate mode we MUST NOT reserve a fresh assistant row.
+        backend.reserve_assistant_message.assert_not_called()
+        backend.finalize_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_regenerate_skips_update_when_function_raises(self):
+        """If the wrapped fn errors during regeneration, the original row stays untouched."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        existing_id = uuid.uuid4()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper, session_id=uuid.uuid4(), regenerate_message_id=existing_id)
+            async def my_func(messages):
+                raise RuntimeError("model down")
+
+            with pytest.raises(RuntimeError, match="model down"):
+                await my_func([{"role": "user", "content": "hi"}])
+
+        backend.update_message.assert_not_called()
+        backend.finalize_message.assert_not_called()
+
+
+class TestSafePostWriteSwallowsExpectedErrors:
+    """Storage failures during finalization must NOT bubble out to the caller."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_registry(self, monkeypatch):
+        from quackmem.core import registry as reg_module
+        monkeypatch.setattr(reg_module, "_metadata_registry", {})
+
+    @pytest.mark.asyncio
+    async def test_post_write_oserror_is_logged_not_raised(self, caplog):
+        import logging
+
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.finalize_message = AsyncMock(side_effect=OSError("network down"))
+
+        with patch("quackmem.backend.get_backend", return_value=backend), \
+             caplog.at_level(logging.ERROR, logger="quackmem.core.decorator"):
+            @track(wrapper, session_id=uuid.uuid4())
+            async def my_func(messages):
+                return "ok"
+
+            # Caller must observe a normal return — tracking is best-effort.
+            result = await my_func([{"role": "user", "content": "hi"}])
+
+        assert result == "ok"
+        assert any("post-write failed" in rec.message for rec in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_pre_write_oserror_is_logged_not_raised(self, caplog):
+        import logging
+
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+        backend.create_session = AsyncMock(side_effect=OSError("network down"))
+
+        with patch("quackmem.backend.get_backend", return_value=backend), \
+             caplog.at_level(logging.ERROR, logger="quackmem.core.decorator"):
+            @track(wrapper, session_id=uuid.uuid4())
+            async def my_func(messages):
+                return "ok"
+
+            result = await my_func([{"role": "user", "content": "hi"}])
+
+        assert result == "ok"
+        assert any("pre-write failed" in rec.message for rec in caplog.records)

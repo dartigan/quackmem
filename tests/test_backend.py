@@ -218,3 +218,29 @@ class TestBackendMockCalls:
 
 # Note: end-to-end backend coverage now lives in tests/integration/, which
 # uses real Postgres via pytest-postgresql or QUACKMEM_TEST_DB_URL.
+
+
+class TestBackendTableAccessors:
+    """The internal table resolvers must fail loudly before init_tracker runs."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_tables(self):
+        from quackmem.db import tables as _tables
+        prev_s, prev_m = _tables.tracked_sessions, _tables.tracked_messages
+        _tables.tracked_sessions = None
+        _tables.tracked_messages = None
+        yield
+        _tables.tracked_sessions = prev_s
+        _tables.tracked_messages = prev_m
+
+    def test_sessions_table_raises_before_init(self):
+        from quackmem.backend import _sessions_table
+
+        with pytest.raises(RuntimeError, match="Tables not initialised"):
+            _sessions_table()
+
+    def test_messages_table_raises_before_init(self):
+        from quackmem.backend import _messages_table
+
+        with pytest.raises(RuntimeError, match="Tables not initialised"):
+            _messages_table()

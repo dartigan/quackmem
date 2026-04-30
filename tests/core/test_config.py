@@ -114,6 +114,32 @@ class TestTrackerConfigValidation:
             )
         assert "max_overflow must be non-negative" in str(exc_info.value)
 
+    def test_default_read_limit_zero_raises_validation_error(self):
+        """default_read_limit of 0 should raise ValidationError."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrackerConfig(
+                database_url="postgresql+asyncpg://user:pass@localhost/db",
+                default_read_limit=0,
+            )
+        assert "default_read_limit must be at least 1" in str(exc_info.value)
+
+    def test_default_read_limit_negative_raises_validation_error(self):
+        """Negative default_read_limit should raise ValidationError."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrackerConfig(
+                database_url="postgresql+asyncpg://user:pass@localhost/db",
+                default_read_limit=-3,
+            )
+        assert "default_read_limit must be at least 1" in str(exc_info.value)
+
+    def test_default_read_limit_one_allowed(self):
+        """default_read_limit of 1 (the minimum) should be accepted."""
+        config = TrackerConfig(
+            database_url="postgresql+asyncpg://user:pass@localhost/db",
+            default_read_limit=1,
+        )
+        assert config.default_read_limit == 1
+
     def test_max_overflow_zero_allowed(self):
         """max_overflow of 0 should be allowed."""
         config = TrackerConfig(
