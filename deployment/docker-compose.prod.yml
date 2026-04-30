@@ -1,13 +1,14 @@
 # Production-style compose file for an app that uses quackmem.
 #
 # Reads secrets and config from `quackmem.env` (copy from quackmem.env.example
-# and fill in real values). The app image is built from the Dockerfile at the
-# repo root.
+# and fill in real values). The app image is built from the Dockerfile in this
+# directory; the build context is the repo root so the Dockerfile can ``COPY``
+# the source tree.
 #
-# Usage:
-#   cp quackmem.env.example quackmem.env   # then edit
-#   docker compose -f docker-compose.prod.yml up -d --build
-#   docker compose -f docker-compose.prod.yml logs -f app
+# Usage (from repo root):
+#   cp deployment/quackmem.env.example deployment/quackmem.env   # then edit
+#   docker compose -f deployment/docker-compose.prod.yml up -d --build
+#   docker compose -f deployment/docker-compose.prod.yml logs -f app
 
 services:
   db:
@@ -32,8 +33,9 @@ services:
 
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Build context is the repo root so COPY in the Dockerfile sees the source.
+      context: ..
+      dockerfile: deployment/Dockerfile
     restart: unless-stopped
     env_file:
       - quackmem.env

@@ -1,11 +1,11 @@
 # Local development helper: brings up a Postgres instance suitable for
 # running the integration test suite or experimenting with the examples.
 #
-# Usage:
-#   docker compose up -d                 # start Postgres
+# Usage (from repo root):
+#   docker compose -f deployment/docker-compose.yml up -d
 #   export QUACKMEM_TEST_DB_URL="postgresql+asyncpg://quackmem:quackmem@localhost:55432/quackmem"
 #   pytest                               # integration tests now run
-#   docker compose down                  # stop and remove
+#   docker compose -f deployment/docker-compose.yml down
 
 services:
   postgres:
