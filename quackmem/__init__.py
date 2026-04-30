@@ -42,6 +42,55 @@ async def verify_tracker() -> None:
     await verify_engine()
 
 
+async def read_messages(
+    session_id,
+    *,
+    limit: int | None = None,
+    statuses: "set[MessageStatus] | None" = None,
+) -> "list[TrackedMessage]":
+    """Read recent messages for a session.
+
+    Returns the most recent ``limit`` messages for ``session_id`` in
+    chronological (oldest-first) order — the shape LLM history consumers
+    expect. Backed by a composite index on ``(session_id, created_at, id)``.
+
+    Args:
+        session_id: Session UUID. Returning empty when the session is unknown
+            or has no matching messages.
+        limit: Maximum number of messages. Defaults to
+            ``TrackerConfig.default_read_limit`` (env
+            ``QUACKMEM_DEFAULT_READ_LIMIT``, default ``10``). Pass an explicit
+            integer to override on a per-call basis.
+        statuses: Status filter. ``None`` means ``{MessageStatus.completed}``
+            — ``pending`` rows have empty content and ``failed`` rows hold
+            stale text from a crashed turn, so neither belongs in normal
+            history reads. Pass an explicit set to opt into them (e.g. for
+            debugging tools).
+
+    Returns:
+        Validated :class:`TrackedMessage` instances in chronological order.
+        May be shorter than ``limit`` (or empty) when fewer rows match.
+    """
+    from uuid import UUID
+
+    from quackmem.backend import get_backend
+    from quackmem.db.session import get_config
+    from quackmem.schema.enums import MessageStatus as _Status
+    from quackmem.schema.models import TrackedMessage as _TrackedMessage
+
+    if not isinstance(session_id, UUID):
+        session_id = UUID(str(session_id))
+    if statuses is None:
+        statuses = {_Status.completed}
+    if limit is None:
+        limit = get_config().default_read_limit
+
+    rows = await get_backend().read_messages(
+        session_id, limit=limit, statuses=statuses,
+    )
+    return [_TrackedMessage(**row) for row in rows]
+
+
 async def reap_orphans(older_than: "timedelta | None" = None) -> int:
     """Mark stuck ``pending`` messages as ``failed`` with error="orphaned".
 
@@ -97,6 +146,7 @@ __all__ = [
     "init_tracker",
     "verify_tracker",
     "reap_orphans",
+    "read_messages",
     "shutdown_tracker",
     "register_metadata",
     "reset_metadata",

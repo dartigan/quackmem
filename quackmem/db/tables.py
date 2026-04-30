@@ -63,6 +63,15 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
         sa.Column("regeneration_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("metadata", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Index(f"{prefix}tracked_messages_metadata_gin", "metadata", postgresql_using="gin"),
+        # Composite index for read_messages: ORDER BY created_at DESC, id DESC LIMIT N.
+        # Postgres scans a btree index backwards as efficiently as forwards,
+        # so a plain ascending composite is the right shape here.
+        sa.Index(
+            f"{prefix}tracked_messages_session_created_id",
+            "session_id",
+            "created_at",
+            "id",
+        ),
         schema=schema,
     )
 

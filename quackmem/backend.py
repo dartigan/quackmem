@@ -179,7 +179,12 @@ class PostgresBackend:
             await db.commit()
 
     async def get_messages(self, session_id: UUID) -> list[dict]:
-        """Return all messages for a session ordered by created_at ascending."""
+        """Return all messages for a session ordered by created_at ascending.
+
+        Internal use only — backs the decorator's history-dedup pass. Public
+        consumers should call :meth:`read_messages` instead so they pick up
+        status filtering and the default-limit behaviour.
+        """
         messages = _messages_table()
         async with get_session() as db:
             result = await db.execute(
@@ -188,6 +193,46 @@ class PostgresBackend:
                 .order_by(messages.c.created_at.asc())
             )
             return [dict(row._mapping) for row in result]
+
+    async def read_messages(
+        self,
+        session_id: UUID,
+        *,
+        limit: int,
+        statuses: set[MessageStatus],
+    ) -> list[dict]:
+        """Return the most recent ``limit`` messages for ``session_id``.
+
+        Rows are selected ``ORDER BY created_at DESC, id DESC`` so the index
+        scan picks the newest first; the result is then reversed in Python to
+        chronological order, which is what LLM-history consumers want.
+
+        Args:
+            session_id: Session to read.
+            limit: Maximum number of messages to return. The caller is
+                expected to apply ``TrackerConfig.default_read_limit`` when
+                they don't have an explicit limit.
+            statuses: Only rows whose ``status`` is in this set are returned.
+                Pass ``{MessageStatus.completed}`` for normal history reads.
+
+        Returns:
+            Messages in chronological (oldest-first) order. May be shorter
+            than ``limit`` (or empty) when the session has fewer matching
+            rows.
+        """
+        messages = _messages_table()
+        status_values = [s.value for s in statuses]
+        async with get_session() as db:
+            result = await db.execute(
+                select(messages)
+                .where(messages.c.session_id == session_id)
+                .where(messages.c.status.in_(status_values))
+                .order_by(messages.c.created_at.desc(), messages.c.id.desc())
+                .limit(limit)
+            )
+            rows = [dict(row._mapping) for row in result]
+        rows.reverse()
+        return rows
 
     @_retryable
     async def reap_orphans(self, older_than: timedelta) -> int:
