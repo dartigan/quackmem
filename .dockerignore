@@ -1,0 +1,42 @@
+# VCS
+.git
+.gitignore
+
+# Python build / cache artefacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+build/
+dist/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# Local env files (must NEVER ship in the image)
+*.env
+!*.env.example
+
+# Tests are not needed in the runtime image
+tests/
+
+# Local helpers
+docker-compose.yml
+docker-compose.override.yml
+docs/
+# README.md is needed by hatchling at build time (referenced in pyproject.toml).

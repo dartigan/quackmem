@@ -1,0 +1,61 @@
+# Production-style compose file for an app that uses quackmem.
+#
+# Reads secrets and config from `quackmem.env` (copy from quackmem.env.example
+# and fill in real values). The app image is built from the Dockerfile at the
+# repo root.
+#
+# Usage:
+#   cp quackmem.env.example quackmem.env   # then edit
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml logs -f app
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Postgres reads POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD from env;
+    # they (and the QUACKMEM_* vars) all live in quackmem.env.
+    env_file:
+      - quackmem.env
+    volumes:
+      - quackmem_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - quackmem.env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+volumes:
+  quackmem_pg_data:

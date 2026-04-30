@@ -1,0 +1,29 @@
+# Local development helper: brings up a Postgres instance suitable for
+# running the integration test suite or experimenting with the examples.
+#
+# Usage:
+#   docker compose up -d                 # start Postgres
+#   export QUACKMEM_TEST_DB_URL="postgresql+asyncpg://quackmem:quackmem@localhost:55432/quackmem"
+#   pytest                               # integration tests now run
+#   docker compose down                  # stop and remove
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quackmem-postgres
+    environment:
+      POSTGRES_USER: quackmem
+      POSTGRES_PASSWORD: quackmem
+      POSTGRES_DB: quackmem
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quackmem -d quackmem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - quackmem_pg_data:/var/lib/postgresql/data
+
+volumes:
+  quackmem_pg_data:
