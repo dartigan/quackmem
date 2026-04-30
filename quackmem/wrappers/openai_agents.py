@@ -45,13 +45,14 @@ class OpenAIAgentsWrapper(BaseWrapper):
         return CanonicalMessage(role=MessageRole.assistant, content=str(result))
 
     def extract_token_count(self, result: Any) -> int | None:
-        # RunResult.usage.total_tokens
+        # RunResult.usage.total_tokens — guard against descriptor/attr errors
+        # raised by exotic result objects.
         try:
             usage = getattr(result, "usage", None)
             if usage is not None:
                 return getattr(usage, "total_tokens", None)
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as exc:
+            logger.debug("Could not extract token count from %r: %s", type(result).__name__, exc)
         return None
 
 

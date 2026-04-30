@@ -34,7 +34,8 @@ class GenericWrapper(BaseWrapper):
         if isinstance(result, str):
             return CanonicalMessage(role=MessageRole.assistant, content=result)
         if isinstance(result, dict):
-            content = result.get("content", result.get("output", str(result)))
+            raw = result.get("content", result.get("output", str(result)))
+            content = raw if isinstance(raw, (str, list)) else str(raw)
             return CanonicalMessage(role=MessageRole.assistant, content=content)
         return CanonicalMessage(role=MessageRole.assistant, content=str(result))
 
