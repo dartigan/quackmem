@@ -32,7 +32,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev deps
-        run: uv pip install --system -e '.[dev,langgraph,openai-agents]'
+        run: uv pip install -e '.[dev,langgraph,openai-agents]'
       - name: mypy
         run: mypy quackmem/
 
@@ -70,6 +70,6 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dev deps
-        run: uv pip install --system --python ${{ matrix.python-version }} -e '.[dev,langgraph,openai-agents]'
+        run: uv pip install --python ${{ matrix.python-version }} -e '.[dev,langgraph,openai-agents]'
       - name: Run tests
         run: pytest -v --tb=short
