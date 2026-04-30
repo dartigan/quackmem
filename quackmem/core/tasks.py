@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from quackmem.core import metrics
+
 logger = logging.getLogger(__name__)
 
 _pending: set[asyncio.Task] = set()
@@ -53,8 +55,16 @@ async def wait_pending_writes(timeout: float | None = None) -> int:
         return 0
     _, still_pending = await asyncio.wait(pending, timeout=timeout)
     if still_pending:
+        # Cancel and await stragglers so dispose_engine() doesn't close the
+        # pool out from under tasks that are mid-write. Without this, the
+        # tasks raise "Event loop is closed" and the writes are silently
+        # dropped — exactly what wait_pending_writes is supposed to prevent.
+        for task in still_pending:
+            task.cancel()
+        await asyncio.gather(*still_pending, return_exceptions=True)
+        metrics.increment("drain_timeouts", len(still_pending))
         logger.warning(
-            "wait_pending_writes timed out with %d task(s) still running",
+            "wait_pending_writes timed out; cancelled %d in-flight task(s)",
             len(still_pending),
             extra={
                 "pending_count": len(still_pending),

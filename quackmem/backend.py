@@ -5,7 +5,7 @@ from datetime import timedelta
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import update, select, cast
+from sqlalchemy import bindparam, update, select, cast
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import OperationalError
 from tenacity import retry, retry_if_exception, wait_random_exponential, stop_after_attempt
@@ -152,8 +152,15 @@ class PostgresBackend:
 
         Called exactly once per reservation. On error paths, the caller passes
         ``status=failed`` and an ``error`` string which is merged into the
-        existing metadata so the audit trail is preserved."""
+        existing metadata so the audit trail is preserved.
+
+        The UPDATE is gated on ``status='pending'`` so a late finalize cannot
+        overwrite a row that the orphan reaper has already moved to ``failed``,
+        and a duplicate finalize from a retry won't clobber a completed row.
+        Mismatches are logged + counted; they don't raise.
+        """
         from datetime import datetime, UTC
+        from quackmem.core import metrics
         messages = _messages_table()
         async with get_session() as db:
             values: dict = {
@@ -174,12 +181,20 @@ class PostgresBackend:
                 current_meta = dict(row[0]) if row and row[0] else {}
                 current_meta["error"] = finalization.error
                 values["metadata"] = current_meta
-            await db.execute(
+            result = await db.execute(
                 update(messages)
                 .where(messages.c.id == finalization.message_id)
+                .where(messages.c.status == MessageStatus.pending.value)
                 .values(**values)
             )
             await db.commit()
+            if (result.rowcount or 0) == 0:  # type: ignore[attr-defined]
+                metrics.increment("finalize_status_mismatch")
+                logger.warning(
+                    "finalize_message: no pending row matched; reaper or "
+                    "duplicate finalize likely won the race",
+                    extra={"message_id": str(finalization.message_id)},
+                )
 
     async def get_messages(self, session_id: UUID) -> list[dict]:
         """Return all messages for a session ordered by created_at ascending.
@@ -273,7 +288,11 @@ class PostgresBackend:
                 )
             )
             await db.commit()
-            return result.rowcount or 0  # type: ignore[attr-defined]
+            from quackmem.core import metrics
+            reaped = result.rowcount or 0  # type: ignore[attr-defined]
+            if reaped:
+                metrics.increment("reservations_unfinalized", reaped)
+            return reaped
 
     @_retryable
     async def insert_tool_result(
@@ -332,8 +351,14 @@ class PostgresBackend:
         if no such row exists. Used by ``record_tool_result`` to back-link
         the result row to its caller."""
         messages = _messages_table()
-        # Postgres jsonb @> contains-any-element check.
-        needle = cast(sa.literal(f'[{{"id": "{tool_call_id}"}}]'), JSONB)
+        # Postgres jsonb @> contains-any-element check. Bind the needle as a
+        # parameter so user-supplied tool_call_id can't break the JSON literal
+        # or escape the SQL.
+        needle = bindparam(
+            "tool_call_needle",
+            value=[{"id": tool_call_id}],
+            type_=JSONB,
+        )
         async with get_session() as db:
             result = await db.execute(
                 select(messages.c.id)

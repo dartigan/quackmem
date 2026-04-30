@@ -111,6 +111,35 @@ For containerised deployments, use `dumb-init` (or another init that forwards
 SIGTERM) so the lifespan shutdown actually fires — see
 `deployment/Dockerfile` for a production-ready template.
 
+### Forking servers (Gunicorn / uvicorn workers)
+
+QuackMem holds a module-level async engine. asyncpg connection pools **do not
+survive `os.fork()`** — workers that inherit the pool from the master process
+will hang or raise `InterfaceError` on first use. Two safe options:
+
+- **Preferred:** start workers without preloading the app
+  (`gunicorn --preload` _off_) so each worker initialises QuackMem itself.
+- **If you must preload:** wire a `post_fork` hook that disposes the inherited
+  engine and re-initialises QuackMem in the child:
+
+  ```python
+  # gunicorn_conf.py
+  def post_fork(server, worker):
+      import asyncio
+      from quackmem import TrackerConfig, init_tracker, dispose_engine
+      asyncio.run(dispose_engine())
+      init_tracker(TrackerConfig())
+  ```
+
+### Pool sizing
+
+`QUACKMEM_POOL_SIZE` and `QUACKMEM_MAX_OVERFLOW` are **per worker process**.
+Total Postgres connections at peak = `(pool_size + max_overflow) × workers`.
+The defaults (5 + 10) suit ~4 workers handling moderate concurrency; raise
+them only after confirming Postgres `max_connections` headroom and watching
+for queueing in `pg_stat_activity`. Each connection costs memory on the DB,
+so bigger isn't free.
+
 ---
 
 ## 🧠 How It Fits

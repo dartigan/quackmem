@@ -7,6 +7,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
@@ -19,6 +20,7 @@ from quackmem.core.context import (
     reset_tracking_context,
     save_last_tracking_context,
 )
+from quackmem.core import metrics
 from quackmem.core.registry import validate_metadata
 from quackmem.core.tasks import register_pending_task
 
@@ -32,13 +34,19 @@ from quackmem.schema.enums import MessageStatus
 
 logger = logging.getLogger(__name__)
 
-# Errors expected from the storage layer. Any other exception type from
-# _fire_write indicates a bug in quackmem itself or in user-supplied wrapper
-# code, and must propagate so the caller sees it.
+# Errors expected from the storage / serialization layer. Any other exception
+# type from _fire_write indicates a bug in quackmem itself or in user-supplied
+# wrapper code, and must propagate so the caller sees it.
+#
+# ValidationError is included because a wrapper's extract_response() may yield
+# data that fails TrackedMessage / MessageFinalization construction; that's a
+# tracking failure, not a host-call failure, and the philosophy is "tracking
+# failures shouldn't break the host call".
 _EXPECTED_WRITE_ERRORS: tuple[type[BaseException], ...] = (
     SQLAlchemyError,
     OSError,
     asyncio.TimeoutError,
+    ValidationError,
 )
 
 _RESERVED_KEYS = frozenset({"conversation_id", "session_id", "regenerate_message_id"})
@@ -252,22 +260,23 @@ async def _safe_pre_write(
     wrapper, decorator_kwargs, args, fn_kwargs,
     session_id, conversation_id, metadata, *, path: str,
 ) -> uuid.UUID | None:
+    metrics.increment("writes_attempted")
     try:
         return await _pre_write(
             wrapper, decorator_kwargs, args, fn_kwargs,
             session_id, conversation_id, metadata,
         )
     except _EXPECTED_WRITE_ERRORS as exc:
-        logger.error(
-            "Tracking pre-write failed",
-            exc_info=True,
-            extra={
-                "session_id": str(session_id),
-                "conversation_id": str(conversation_id),
-                "error_type": type(exc).__name__,
-                "path": path,
-            },
-        )
+        metrics.increment("writes_dropped")
+        ctx = {
+            "session_id": str(session_id),
+            "conversation_id": str(conversation_id),
+            "error_type": type(exc).__name__,
+            "path": path,
+            "stage": "pre_write",
+        }
+        logger.error("Tracking pre-write failed", exc_info=True, extra=ctx)
+        metrics.fire_on_tracking_error(exc, ctx)
         return None
 
 
@@ -275,17 +284,19 @@ async def _safe_post_write(
     wrapper, decorator_kwargs, result, reserved_id,
     *, path: str, error: BaseException | None = None,
 ) -> None:
+    metrics.increment("writes_attempted")
     try:
         await _post_write(wrapper, decorator_kwargs, result, reserved_id, error=error)
     except _EXPECTED_WRITE_ERRORS as exc:
-        logger.error(
-            "Tracking post-write failed",
-            exc_info=True,
-            extra={
-                "error_type": type(exc).__name__,
-                "path": path,
-            },
-        )
+        metrics.increment("writes_dropped")
+        ctx = {
+            "error_type": type(exc).__name__,
+            "path": path,
+            "stage": "post_write",
+            "reserved_message_id": str(reserved_id) if reserved_id else None,
+        }
+        logger.error("Tracking post-write failed", exc_info=True, extra=ctx)
+        metrics.fire_on_tracking_error(exc, ctx)
 
 
 async def _run_tracked_async(fn, wrapper, decorator_kwargs, args, fn_kwargs):
@@ -422,35 +433,37 @@ async def _guarded_full_write(
     full pre+post write sequence after the function has already returned.
     The caller's TrackingContext won't see message_id mid-call here, but the
     persisted state still ends up identical to the foreground path."""
+    metrics.increment("writes_attempted")
     try:
         reserved_id = await _pre_write(
             wrapper, decorator_kwargs, args, fn_kwargs,
             session_id, conversation_id, metadata,
         )
     except _EXPECTED_WRITE_ERRORS as exc:
-        logger.error(
-            "Tracking pre-write failed (background task)",
-            exc_info=True,
-            extra={
-                "session_id": str(session_id),
-                "error_type": type(exc).__name__,
-                "path": "sync_background",
-            },
-        )
+        metrics.increment("writes_dropped")
+        ctx = {
+            "session_id": str(session_id),
+            "error_type": type(exc).__name__,
+            "path": "sync_background",
+            "stage": "pre_write",
+        }
+        logger.error("Tracking pre-write failed (background task)", exc_info=True, extra=ctx)
+        metrics.fire_on_tracking_error(exc, ctx)
         return
 
+    metrics.increment("writes_attempted")
     try:
         await _post_write(wrapper, decorator_kwargs, result, reserved_id)
     except _EXPECTED_WRITE_ERRORS as exc:
-        logger.error(
-            "Tracking post-write failed (background task)",
-            exc_info=True,
-            extra={
-                "session_id": str(session_id),
-                "error_type": type(exc).__name__,
-                "path": "sync_background",
-            },
-        )
+        metrics.increment("writes_dropped")
+        ctx = {
+            "session_id": str(session_id),
+            "error_type": type(exc).__name__,
+            "path": "sync_background",
+            "stage": "post_write",
+        }
+        logger.error("Tracking post-write failed (background task)", exc_info=True, extra=ctx)
+        metrics.fire_on_tracking_error(exc, ctx)
 
 
 def track(wrapper: BaseWrapper, **decorator_kwargs):

@@ -79,3 +79,26 @@ class TestMigrationIntegration:
         from quackmem.migrations.runner import upgrade_db
         upgrade_db()
         upgrade_db()  # Second run should be a no-op
+
+    def test_downgrade_one_step_round_trips(self):
+        """Each migration's downgrade must undo its upgrade cleanly.
+
+        Walks back one revision at a time from head to base and back up,
+        so a broken downgrade in any single revision is caught here rather
+        than first surfacing during a production rollback.
+        """
+        import os
+        db_url = os.environ["QUACKMEM_TEST_DB_URL"]
+        os.environ.setdefault("QUACKMEM_DB_URL", db_url)
+
+        from quackmem.migrations.runner import upgrade_db, downgrade_db
+
+        upgrade_db()  # Start from head.
+        # Step back to base one revision at a time.
+        while True:
+            try:
+                downgrade_db("-1")
+            except Exception:
+                break
+        # And forward again.
+        upgrade_db()

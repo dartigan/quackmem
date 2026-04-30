@@ -10,6 +10,10 @@ from quackmem.core.registry import register_metadata, reset_metadata
 from quackmem.core.context import get_tracking_context
 from quackmem.core.exceptions import TrackerConfigError, MetadataValidationError
 from quackmem.core.logging import configure_logging
+from quackmem.core.metrics import (
+    set_on_tracking_error,
+    snapshot as metrics_snapshot,
+)
 from quackmem.core.tasks import wait_pending_writes
 from quackmem.db.session import dispose_engine
 from quackmem.migrations.runner import upgrade_db, downgrade_db, generate_migration
@@ -223,9 +227,11 @@ async def shutdown_tracker(*, drain_timeout: float | None = 10) -> int:
         Number of tracking writes still in flight when the timeout elapsed
         (``0`` on a clean shutdown).
     """
-    from quackmem.db.session import dispose_engine
+    # Late import so tests can monkey-patch ``quackmem.db.session.dispose_engine``
+    # without also patching the symbol re-exported from this module.
+    from quackmem.db import session as _db_session
     pending = await wait_pending_writes(timeout=drain_timeout)
-    await dispose_engine()
+    await _db_session.dispose_engine()
     return pending
 
 
@@ -244,6 +250,8 @@ __all__ = [
     "reset_metadata",
     "get_tracking_context",
     "wait_pending_writes",
+    "set_on_tracking_error",
+    "metrics_snapshot",
     "dispose_engine",
     "configure_logging",
     "upgrade_db",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import AsyncIterator
 
 import sqlalchemy as sa
@@ -58,8 +59,19 @@ async def verify_engine() -> None:
             await conn.execute(sa.text("SELECT 1"))
     except Exception as exc:
         raise TrackerConfigError(
-            f"Database connectivity check failed: {exc}"
+            f"Database connectivity check failed: {_mask_dsn(str(exc))}"
         ) from exc
+
+
+# Matches the userinfo segment of a URL: ``scheme://user:password@host``.
+# Drivers occasionally render the full DSN (with password) into exception
+# messages; strip the password before re-raising so it doesn't end up in
+# logs / Sentry.
+_DSN_RE = re.compile(r"(://[^:/@\s]+):([^@/\s]+)@")
+
+
+def _mask_dsn(text: str) -> str:
+    return _DSN_RE.sub(r"\1:***@", text)
 
 
 def get_engine() -> AsyncEngine:
