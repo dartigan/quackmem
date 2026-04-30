@@ -108,8 +108,8 @@ app = FastAPI(lifespan=lifespan)
 call `wait_pending_writes(timeout=...)` and `dispose_engine()` separately.
 
 For containerised deployments, use `dumb-init` (or another init that forwards
-SIGTERM) so the lifespan shutdown actually fires — see the bundled
-`Dockerfile` for a production-ready template.
+SIGTERM) so the lifespan shutdown actually fires — see
+`deployment/Dockerfile` for a production-ready template.
 
 ---
 
