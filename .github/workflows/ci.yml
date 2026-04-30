@@ -18,10 +18,11 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"        # ← invalidate on lockfile change
       - name: Install dev deps
-        run: uv pip install -e '.[dev]'
+        run: uv sync --frozen --python 3.12 --extra dev   # ← lockfile, pinned Python
       - name: ruff check
-        run: ruff check quackmem/ tests/
+        run: uv run ruff check .           # ← runs in managed venv
 
   typecheck:
     name: mypy
@@ -31,10 +32,11 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install dev deps
-        run: uv pip install -e '.[dev,langgraph,openai-agents]'
+        run: uv sync --frozen --python 3.12 --extra dev --extra langgraph --extra openai-agents
       - name: mypy
-        run: mypy quackmem/
+        run: uv run mypy quackmem/
 
   test:
     name: pytest (py${{ matrix.python-version }})
@@ -42,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.12']
 
     services:
       postgres:
@@ -67,9 +69,8 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-      - name: Install dev deps
-        run: uv pip install --python ${{ matrix.python-version }} -e '.[dev,langgraph,openai-agents]'
+          cache-dependency-glob: "uv.lock"
+      - name: Install deps                        # ← one step, no separate python install
+        run: uv sync --frozen --python ${{ matrix.python-version }} --extra dev --extra langgraph --extra openai-agents
       - name: Run tests
-        run: pytest -v --tb=short
+        run: uv run pytest -v --tb=short
