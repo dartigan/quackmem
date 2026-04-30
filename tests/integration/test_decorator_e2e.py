@@ -126,12 +126,15 @@ async def test_concurrent_writes_to_distinct_sessions(initialized_tracker):
     deadlocks or races."""
     wrapper = GenericWrapper()
 
-    @track(wrapper)
-    async def chat(messages):
-        await asyncio.sleep(0.01)
-        return "ok"
+    async def one_call(i: int) -> None:
+        @track(wrapper, session_id=uuid.uuid4())
+        async def chat(messages):
+            await asyncio.sleep(0.01)
+            return "ok"
 
-    await asyncio.gather(*[chat([{"role": "user", "content": f"m{i}"}]) for i in range(20)])
+        await chat([{"role": "user", "content": f"m{i}"}])
+
+    await asyncio.gather(*[one_call(i) for i in range(20)])
 
     from quackmem.db import get_session, tracked_sessions
 
@@ -166,3 +169,53 @@ async def test_sync_decorator_in_loop_drains_via_wait_pending_writes(initialized
             )
         ).all()
     assert len(rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_read_messages_returns_decorator_history(initialized_tracker):
+    """End-to-end: decorator writes a turn, ``read_messages`` returns it."""
+    from quackmem import read_messages
+
+    sid = uuid.uuid4()
+    wrapper = GenericWrapper()
+
+    @track(wrapper, session_id=sid)
+    async def chat(messages: list[dict]) -> str:
+        return "the answer"
+
+    await chat([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "what is 2+2?"},
+    ])
+
+    rows = await read_messages(sid)
+    contents = [r.content for r in rows]
+    assert contents == ["sys", "what is 2+2?", "the answer"]
+
+
+@pytest.mark.asyncio
+async def test_read_messages_uses_default_limit(initialized_tracker):
+    """``limit`` omitted → ``TrackerConfig.default_read_limit`` (default 10) applies."""
+    from quackmem import read_messages
+    from quackmem.backend import get_backend
+    from quackmem.schema.enums import MessageRole, MessageStatus
+    from quackmem.schema.models import TrackedMessage, TrackedSession
+
+    backend = get_backend()
+    sid = uuid.uuid4()
+    cid = uuid.uuid4()
+    await backend.create_session(TrackedSession(id=sid, conversation_id=cid))
+
+    for i in range(15):
+        await backend.insert_message(TrackedMessage(
+            session_id=sid,
+            conversation_id=cid,
+            role=MessageRole.user,
+            content=f"m{i}",
+            status=MessageStatus.completed,
+        ))
+
+    rows = await read_messages(sid)
+    assert len(rows) == 10
+    assert rows[0].content == "m5"
+    assert rows[-1].content == "m14"

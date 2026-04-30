@@ -172,7 +172,7 @@ class TestLangGraphMemDecorator:
     async def test_wraps_async_function(self):
         backend = _mock_backend()
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @langgraph_mem()
+            @langgraph_mem(session_id=uuid4())
             async def my_node(state: dict) -> dict:
                 return {"messages": [_make_lc_message("AIMessage", "wrapped result")]}
 
@@ -199,7 +199,7 @@ class TestLangGraphMemDecorator:
         with patch("quackmem.backend.get_backend", return_value=backend):
             fixed_conv = uuid4()
 
-            @langgraph_mem(conversation_id=fixed_conv)
+            @langgraph_mem(session_id=uuid4(), conversation_id=fixed_conv)
             async def my_node(state: dict) -> dict:
                 return {"messages": [_make_lc_message("AIMessage", "ok")]}
 

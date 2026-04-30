@@ -47,6 +47,7 @@ class TestBackendUnit:
         assert callable(b.reserve_assistant_message)
         assert callable(b.finalize_message)
         assert callable(b.reap_orphans)
+        assert callable(b.read_messages)
 
     def test_build_tables_is_idempotent(self):
         """Calling build_tables twice must not raise (Bug 5 fix)."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -127,7 +128,7 @@ class TestStructuredFieldsAtCallSites:
 
         with patch("quackmem.backend.get_backend", return_value=backend), \
              caplog.at_level(logging.ERROR, logger="quackmem.core.decorator"):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_fn(messages):
                 return "ok"
 
@@ -162,7 +163,7 @@ class TestStructuredFieldsAtCallSites:
         backend.get_messages = AsyncMock(return_value=[])
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_fn(messages):
                 return "ok"
 

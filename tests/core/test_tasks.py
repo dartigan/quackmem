@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -99,7 +100,7 @@ class TestSyncDecoratorRegistersPendingTask:
         backend.finalize_message = AsyncMock(return_value=None)
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             def my_sync_func(messages):
                 return "ok"
 

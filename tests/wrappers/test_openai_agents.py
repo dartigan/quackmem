@@ -155,7 +155,7 @@ class TestOpenAIAgentsMemDecorator:
         run_result = _make_run_result("agent response", total_tokens=10)
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @openai_agents_mem()
+            @openai_agents_mem(session_id=uuid4())
             async def run_agent(input: str):
                 return run_result
 
@@ -169,24 +169,17 @@ class TestOpenAIAgentsMemDecorator:
         backend.finalize_message.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_session_id_auto_generated_when_not_provided(self):
-        """session_id is auto-generated when not provided."""
-        captured = {}
+    async def test_session_id_must_be_provided(self):
+        """session_id is mandatory — wrapper raises ValueError if omitted."""
         backend = _mock_backend()
-
-        async def capture_upsert(session):
-            captured["session"] = session
-
-        backend.create_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
             @openai_agents_mem()
             async def run_agent(input: str):
                 return _make_run_result("done")
 
-            await run_agent("hello")
-
-        assert isinstance(captured["session"].id, uuid4().__class__)
+            with pytest.raises(ValueError, match="session_id is required"):
+                await run_agent("hello")
 
     @pytest.mark.asyncio
     async def test_session_id_from_kwargs_used_when_provided(self):

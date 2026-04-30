@@ -56,7 +56,7 @@ class TestTrackDecorator:
         wrapper = GenericWrapper()
         backend = _mock_backend()
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             def my_func(messages):
                 return "the answer"
 
@@ -68,7 +68,7 @@ class TestTrackDecorator:
         wrapper = GenericWrapper()
         backend = _mock_backend()
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_async_func(messages):
                 return "async result"
 
@@ -76,14 +76,28 @@ class TestTrackDecorator:
         assert result == "async result"
 
     @pytest.mark.asyncio
-    async def test_auto_generated_session_and_conversation_id(self):
-        """When no IDs provided, both UUIDs are auto-generated."""
+    async def test_missing_session_id_raises_value_error(self):
+        """session_id is mandatory — auto-generation would silently fragment memory."""
+        wrapper = GenericWrapper()
+        backend = _mock_backend()
+
+        with patch("quackmem.backend.get_backend", return_value=backend):
+            @track(wrapper)
+            async def my_func(messages):
+                return "ok"
+
+            with pytest.raises(ValueError, match="session_id is required"):
+                await my_func(["hello"])
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_auto_generated_when_not_provided(self):
+        """conversation_id is optional and auto-generates when not passed."""
         wrapper = GenericWrapper()
         captured = {}
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
                 return "ok"
@@ -94,24 +108,6 @@ class TestTrackDecorator:
         assert ctx is not None
         assert isinstance(ctx.session_id, uuid.UUID)
         assert isinstance(ctx.conversation_id, uuid.UUID)
-
-    @pytest.mark.asyncio
-    async def test_session_id_auto_generated_when_not_provided(self):
-        """session_id is auto-generated when not provided."""
-        wrapper = GenericWrapper()
-        captured_ids = []
-        backend = _mock_backend()
-
-        with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
-            async def my_func(messages):
-                captured_ids.append(get_tracking_context().session_id)
-                return "ok"
-
-            await my_func(["hello"])
-
-        assert len(captured_ids) == 1
-        assert isinstance(captured_ids[0], uuid.UUID)
 
     @pytest.mark.asyncio
     async def test_session_id_from_kwargs_used_when_provided(self):
@@ -160,7 +156,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, conversation_id=fixed_conv)
+            @track(wrapper, session_id=uuid.uuid4(), conversation_id=fixed_conv)
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
                 return "ok"
@@ -182,7 +178,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, conversation_id=str(fixed_conv))
+            @track(wrapper, session_id=uuid.uuid4(), conversation_id=str(fixed_conv))
             async def my_func(messages):
                 captured["ctx"] = get_tracking_context()
                 return "ok"
@@ -201,7 +197,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, bad_key="oops")
+            @track(wrapper, session_id=uuid.uuid4(), bad_key="oops")
             async def my_func(messages):
                 return "ok"
 
@@ -220,7 +216,7 @@ class TestTrackDecorator:
         )
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "still works"
 
@@ -238,7 +234,7 @@ class TestTrackDecorator:
         backend.create_session = AsyncMock(side_effect=TypeError("bug in wrapper"))
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "ok"
 
@@ -253,7 +249,7 @@ class TestTrackDecorator:
         backend.create_session = AsyncMock(side_effect=OSError("connection refused"))
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "still works"
 
@@ -269,7 +265,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 ctx_during["inside"] = get_tracking_context()
                 return "ok"
@@ -290,7 +286,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "response"
 
@@ -310,7 +306,7 @@ class TestTrackDecorator:
         backend.get_messages = AsyncMock(return_value=[])
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "response"
 
@@ -339,7 +335,7 @@ class TestTrackDecorator:
         backend.get_messages = AsyncMock(return_value=existing)
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, regenerate_message_id=regen_id)
+            @track(wrapper, session_id=uuid.uuid4(), regenerate_message_id=regen_id)
             async def my_func(messages):
                 return "regenerated response"
 
@@ -367,7 +363,7 @@ class TestTrackDecorator:
         backend.create_session = fake_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper, user_id="alice")
+            @track(wrapper, session_id=uuid.uuid4(), user_id="alice")
             async def my_func(messages):
                 return "ok"
 
@@ -548,7 +544,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 return "ok"
 
@@ -727,7 +723,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 raise RuntimeError("model exploded")
 
@@ -750,7 +746,7 @@ class TestTrackDecorator:
         captured = {}
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_func(messages):
                 captured["mid"] = get_tracking_context().message_id
                 return "ok"
@@ -770,7 +766,7 @@ class TestTrackDecorator:
         backend = _mock_backend()
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track(wrapper)
+            @track(wrapper, session_id=uuid.uuid4())
             async def my_stream(messages):
                 yield "partial"
                 raise RuntimeError("stream broke")

@@ -270,3 +270,76 @@ async def test_get_messages_returns_in_created_at_order(initialized_tracker):
 
     rows = await backend.get_messages(session.id)
     assert [r["content"] for r in rows] == ["first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_read_messages_returns_last_n_chronological(initialized_tracker):
+    from quackmem.backend import get_backend
+
+    backend = get_backend()
+    session = _make_session()
+    await backend.create_session(session)
+
+    for i in range(5):
+        await backend.insert_message(_make_message(session, content=f"m{i}"))
+        await asyncio.sleep(0.01)
+
+    rows = await backend.read_messages(
+        session.id, limit=3, statuses={MessageStatus.completed},
+    )
+    # Last 3, chronological order.
+    assert [r["content"] for r in rows] == ["m2", "m3", "m4"]
+
+
+@pytest.mark.asyncio
+async def test_read_messages_returns_all_when_fewer_than_limit(initialized_tracker):
+    from quackmem.backend import get_backend
+
+    backend = get_backend()
+    session = _make_session()
+    await backend.create_session(session)
+    await backend.insert_message(_make_message(session, content="only"))
+
+    rows = await backend.read_messages(
+        session.id, limit=10, statuses={MessageStatus.completed},
+    )
+    assert [r["content"] for r in rows] == ["only"]
+
+
+@pytest.mark.asyncio
+async def test_read_messages_empty_for_unknown_session(initialized_tracker):
+    from quackmem.backend import get_backend
+
+    backend = get_backend()
+    rows = await backend.read_messages(
+        uuid4(), limit=10, statuses={MessageStatus.completed},
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_read_messages_filters_by_status(initialized_tracker):
+    from quackmem.backend import get_backend
+    from quackmem.schema.models import MessageReservation
+
+    backend = get_backend()
+    session = _make_session()
+    await backend.create_session(session)
+
+    # One completed message + one pending reservation.
+    await backend.insert_message(_make_message(session, content="done"))
+    await backend.reserve_assistant_message(MessageReservation(
+        session_id=session.id,
+        conversation_id=session.conversation_id,
+    ))
+
+    completed_only = await backend.read_messages(
+        session.id, limit=10, statuses={MessageStatus.completed},
+    )
+    assert [r["content"] for r in completed_only] == ["done"]
+
+    both = await backend.read_messages(
+        session.id, limit=10,
+        statuses={MessageStatus.completed, MessageStatus.pending},
+    )
+    assert len(both) == 2

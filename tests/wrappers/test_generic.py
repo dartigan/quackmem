@@ -1,6 +1,7 @@
 """Tests for GenericWrapper and track_conversation decorator."""
 from __future__ import annotations
 
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -144,7 +145,7 @@ class TestTrackConversationDecorator:
     async def test_async_function_wrapped(self):
         backend = _mock_backend()
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track_conversation()
+            @track_conversation(session_id=uuid.uuid4())
             async def my_llm_call(messages):
                 return "llm output"
 
@@ -160,7 +161,7 @@ class TestTrackConversationDecorator:
     def test_sync_function_wrapped(self):
         backend = _mock_backend()
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track_conversation()
+            @track_conversation(session_id=uuid.uuid4())
             def my_sync_call(messages):
                 return "sync output"
 
@@ -184,7 +185,7 @@ class TestTrackConversationDecorator:
         backend.create_session = capture_upsert
 
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track_conversation(user_id="bob")
+            @track_conversation(session_id=uuid.uuid4(), user_id="bob")
             async def my_llm_call(messages):
                 return "ok"
 
@@ -204,7 +205,7 @@ class TestTrackConversationDecorator:
             side_effect=OperationalError("stmt", {}, Exception("boom"))
         )
         with patch("quackmem.backend.get_backend", return_value=backend):
-            @track_conversation()
+            @track_conversation(session_id=uuid.uuid4())
             async def my_llm_call(messages):
                 return "result despite failure"
 

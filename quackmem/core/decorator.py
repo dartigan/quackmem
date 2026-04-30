@@ -45,10 +45,21 @@ _RESERVED_KEYS = frozenset({"conversation_id", "session_id", "regenerate_message
 
 
 def _resolve_ids(decorator_kwargs: dict) -> tuple[uuid.UUID, uuid.UUID]:
+    """Resolve session_id (mandatory) and conversation_id (auto-gen if absent).
+
+    Auto-generating ``session_id`` would silently fragment memory across
+    calls — every turn would land in a new session. Force the caller to
+    provide one so the membership decision is explicit.
+    """
     session_id = decorator_kwargs.get("session_id")
     if session_id is None:
-        session_id = uuid.uuid4()
-    elif not isinstance(session_id, uuid.UUID):
+        raise ValueError(
+            "session_id is required. Pass it as a keyword argument to the "
+            "decorator (e.g. @track(wrapper, session_id=...)) so messages "
+            "are routed to the correct session. Auto-generation would "
+            "silently fragment memory across calls."
+        )
+    if not isinstance(session_id, uuid.UUID):
         session_id = uuid.UUID(str(session_id))
 
     conversation_id = decorator_kwargs.get("conversation_id")
