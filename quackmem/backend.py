@@ -137,6 +137,7 @@ class PostgresBackend:
                     parent_message_id=reservation.parent_message_id,
                     role=reservation.role,
                     content="",
+                    tool_call_id=reservation.tool_call_id,
                     token_count=None,
                     status=MessageStatus.pending.value,
                     metadata=reservation.metadata,
@@ -160,6 +161,8 @@ class PostgresBackend:
                 "status": finalization.status,
                 "updated_at": datetime.now(UTC),
             }
+            if finalization.tool_calls is not None:
+                values["tool_calls"] = finalization.tool_calls
             if finalization.token_count is not None:
                 values["token_count"] = finalization.token_count
             if finalization.error is not None:
@@ -271,6 +274,78 @@ class PostgresBackend:
             )
             await db.commit()
             return result.rowcount or 0  # type: ignore[attr-defined]
+
+    @_retryable
+    async def insert_tool_result(
+        self,
+        *,
+        session_id: UUID,
+        conversation_id: UUID,
+        tool_call_id: str,
+        content: str | list[dict],
+        parent_message_id: UUID | None = None,
+        metadata: dict | None = None,
+    ) -> UUID:
+        """Insert a ``role=tool`` row that answers a previous tool call.
+
+        Returns the inserted message id. ``parent_message_id`` should point
+        at the assistant row that issued the call when known; pass ``None``
+        if the lookup was inconclusive — quackmem prefers to record the
+        result with a NULL link over losing it.
+        """
+        from uuid import uuid4
+        messages = _messages_table()
+        new_id = uuid4()
+        async with get_session() as db:
+            await db.execute(
+                insert(messages).values(
+                    id=new_id,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    parent_message_id=parent_message_id,
+                    role="tool",
+                    content=content,
+                    tool_call_id=tool_call_id,
+                    status=MessageStatus.completed.value,
+                    metadata=metadata or {},
+                )
+            )
+            await db.commit()
+        return new_id
+
+    async def get_conversation_id(self, session_id: UUID) -> UUID | None:
+        """Return the ``conversation_id`` for a session, or ``None`` if the
+        session row doesn't exist. Used by ``record_tool_result`` so callers
+        don't have to pass ``conversation_id`` redundantly."""
+        sessions = _sessions_table()
+        async with get_session() as db:
+            row = (await db.execute(
+                select(sessions.c.conversation_id).where(sessions.c.id == session_id)
+            )).first()
+        return UUID(str(row[0])) if row else None
+
+    async def find_assistant_for_tool_call(
+        self, session_id: UUID, tool_call_id: str
+    ) -> UUID | None:
+        """Return the most recent assistant message in this session whose
+        ``tool_calls`` array contains an entry with the given id, or ``None``
+        if no such row exists. Used by ``record_tool_result`` to back-link
+        the result row to its caller."""
+        messages = _messages_table()
+        # Postgres jsonb @> contains-any-element check.
+        needle = cast(sa.literal(f'[{{"id": "{tool_call_id}"}}]'), JSONB)
+        async with get_session() as db:
+            result = await db.execute(
+                select(messages.c.id)
+                .where(messages.c.session_id == session_id)
+                .where(messages.c.role == "assistant")
+                .where(messages.c.tool_calls.is_not(None))
+                .where(messages.c.tool_calls.op("@>")(needle))
+                .order_by(messages.c.created_at.desc(), messages.c.id.desc())
+                .limit(1)
+            )
+            row = result.first()
+            return UUID(str(row[0])) if row else None
 
     async def update_status(self, message_id: UUID, status: MessageStatus) -> None:
         """Update only the status column of a message row."""

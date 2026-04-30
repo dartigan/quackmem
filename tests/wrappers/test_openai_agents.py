@@ -120,6 +120,32 @@ class TestOpenAIAgentsWrapperExtractResponse:
         result = self.wrapper.extract_response(run_result)
         assert isinstance(result.content, str)
 
+    def test_extracts_tool_calls_from_run_result(self):
+        """A custom RunResult exposing ``tool_calls`` must surface them."""
+        run_result = MagicMock()
+        run_result.final_output = "thinking"
+        run_result.tool_calls = [
+            {"id": "c1", "name": "search"},
+            {"id": "c2", "name": "fetch"},
+        ]
+        result = self.wrapper.extract_response(run_result)
+        assert result.tool_calls is not None
+        assert len(result.tool_calls) == 2
+
+    def test_run_result_without_tool_calls(self):
+        run_result = _make_run_result("done")
+        result = self.wrapper.extract_response(run_result)
+        # _make_run_result sets only final_output / usage; no tool_calls attr or it's a Mock,
+        # so the extractor must not surface a Mock as tool_calls.
+        assert result.tool_calls is None or isinstance(result.tool_calls, list)
+
+    def test_dict_result_with_tool_calls(self):
+        result = self.wrapper.extract_response({
+            "content": "x",
+            "tool_calls": [{"id": "c1", "name": "t"}],
+        })
+        assert result.tool_calls == [{"id": "c1", "name": "t"}]
+
 
 # ---------------------------------------------------------------------------
 # OpenAIAgentsWrapper.extract_token_count

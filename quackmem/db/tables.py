@@ -56,6 +56,8 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
         ),
         sa.Column("role", sa.Text, nullable=False),
         sa.Column("content", JSONB, nullable=False),
+        sa.Column("tool_calls", JSONB, nullable=True),
+        sa.Column("tool_call_id", sa.Text, nullable=True),
         sa.Column("token_count", sa.Integer, nullable=True),
         sa.Column("status", sa.Text, nullable=False, server_default="pending"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -63,6 +65,16 @@ def build_tables(schema: str | None, prefix: str) -> tuple[sa.Table, sa.Table]:
         sa.Column("regeneration_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("metadata", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Index(f"{prefix}tracked_messages_metadata_gin", "metadata", postgresql_using="gin"),
+        sa.Index(
+            f"{prefix}tracked_messages_tool_calls_gin",
+            "tool_calls",
+            postgresql_using="gin",
+        ),
+        sa.Index(
+            f"{prefix}tracked_messages_tool_call_id",
+            "tool_call_id",
+            postgresql_where=sa.text("tool_call_id IS NOT NULL"),
+        ),
         # Composite index for read_messages: ORDER BY created_at DESC, id DESC LIMIT N.
         # Postgres scans a btree index backwards as efficiently as forwards,
         # so a plain ascending composite is the right shape here.

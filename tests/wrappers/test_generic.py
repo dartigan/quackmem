@@ -112,6 +112,23 @@ class TestGenericWrapperExtractResponse:
         result = self.wrapper.extract_response(12345)
         assert result.content == "12345"
 
+    def test_extracts_tool_calls_from_dict_response(self):
+        calls = [
+            {"id": "c1", "name": "search"},
+            {"id": "c2", "name": "fetch"},
+        ]
+        result = self.wrapper.extract_response({"content": "thinking", "tool_calls": calls})
+        assert result.tool_calls == calls
+
+    def test_string_response_has_no_tool_calls(self):
+        result = self.wrapper.extract_response("just text")
+        assert result.tool_calls is None
+
+    def test_non_list_tool_calls_ignored(self):
+        """A malformed ``tool_calls`` (not a list) must not crash; just skip."""
+        result = self.wrapper.extract_response({"content": "x", "tool_calls": "oops"})
+        assert result.tool_calls is None
+
 
 # ---------------------------------------------------------------------------
 # GenericWrapper.extract_token_count

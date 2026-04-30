@@ -36,13 +36,48 @@ class OpenAIAgentsWrapper(BaseWrapper):
         # RunResult has .final_output attribute
         if hasattr(result, "final_output"):
             content = result.final_output
+            tool_calls = self._extract_response_tool_calls(result)
             if isinstance(content, str):
-                return CanonicalMessage(role=MessageRole.assistant, content=content)
-            return CanonicalMessage(role=MessageRole.assistant, content=str(content))
+                return CanonicalMessage(
+                    role=MessageRole.assistant,
+                    content=content,
+                    tool_calls=tool_calls,
+                )
+            return CanonicalMessage(
+                role=MessageRole.assistant,
+                content=str(content),
+                tool_calls=tool_calls,
+            )
         # Plain string or dict fallback
         if isinstance(result, str):
             return CanonicalMessage(role=MessageRole.assistant, content=result)
+        if isinstance(result, dict):
+            calls = result.get("tool_calls")
+            if calls is not None and not isinstance(calls, list):
+                calls = None
+            return CanonicalMessage(
+                role=MessageRole.assistant,
+                content=str(result.get("content", result)),
+                tool_calls=calls,
+            )
         return CanonicalMessage(role=MessageRole.assistant, content=str(result))
+
+    @staticmethod
+    def _extract_response_tool_calls(result: Any) -> list[dict] | None:
+        """Best-effort pull of pending tool calls off a RunResult.
+
+        The OpenAI Agents SDK normally resolves tool calls inside the run
+        loop, so a RunResult typically has none outstanding. When a custom
+        runner exposes them (e.g. via ``result.tool_calls`` or via the last
+        item of ``result.new_items``), we pass them through verbatim.
+        """
+        try:
+            calls = getattr(result, "tool_calls", None)
+            if isinstance(calls, list):
+                return calls
+        except (AttributeError, TypeError) as exc:
+            logger.debug("Could not read tool_calls off %r: %s", type(result).__name__, exc)
+        return None
 
     def extract_token_count(self, result: Any) -> int | None:
         # RunResult.usage.total_tokens — guard against descriptor/attr errors

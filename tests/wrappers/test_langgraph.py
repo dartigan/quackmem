@@ -130,6 +130,23 @@ class TestLangGraphWrapperExtractResponse:
         assert result.role == MessageRole.assistant
         assert "42" in result.content
 
+    def test_extracts_tool_calls_from_last_ai_message(self):
+        """An AIMessage carrying ``tool_calls`` must surface them on the response."""
+        ai = _make_lc_message("AIMessage", "")
+        ai.tool_calls = [
+            {"id": "c1", "name": "search", "args": {"q": "weather"}},
+            {"id": "c2", "name": "fetch", "args": {"url": "..."}},
+        ]
+        result = self.wrapper.extract_response({"messages": [ai]})
+        assert result.tool_calls is not None
+        assert len(result.tool_calls) == 2
+        assert {c["name"] for c in result.tool_calls} == {"search", "fetch"}
+
+    def test_no_tool_calls_when_response_has_none(self):
+        ai = _make_lc_message("AIMessage", "plain reply")
+        result = self.wrapper.extract_response({"messages": [ai]})
+        assert result.tool_calls is None
+
 
 # ---------------------------------------------------------------------------
 # LangGraphWrapper.extract_token_count

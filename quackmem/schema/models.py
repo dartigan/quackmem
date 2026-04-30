@@ -26,6 +26,8 @@ class TrackedMessage(BaseModel):
     parent_message_id: UUID | None = None
     role: MessageRole
     content: str | list[dict]
+    tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
     token_count: int | None = None
     status: MessageStatus = MessageStatus.completed
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -49,6 +51,7 @@ class MessageReservation(BaseModel):
     conversation_id: UUID
     parent_message_id: UUID | None = None
     role: MessageRole = MessageRole.assistant
+    tool_call_id: str | None = None
     metadata: dict = Field(default_factory=dict)
 
 
@@ -64,6 +67,7 @@ class MessageFinalization(BaseModel):
 
     message_id: UUID
     content: str | list[dict]
+    tool_calls: list[dict] | None = None
     token_count: int | None = None
     status: MessageStatus = MessageStatus.completed
     error: str | None = None

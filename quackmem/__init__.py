@@ -5,6 +5,7 @@ from datetime import timedelta  # noqa: F401  (used in annotation strings)
 from typing import TYPE_CHECKING
 
 from quackmem.core.config import TrackerConfig
+from quackmem.schema.canonical import ToolCall
 from quackmem.core.registry import register_metadata, reset_metadata
 from quackmem.core.context import get_tracking_context
 from quackmem.core.exceptions import TrackerConfigError, MetadataValidationError
@@ -122,6 +123,90 @@ async def reap_orphans(older_than: "timedelta | None" = None) -> int:
     return await get_backend().reap_orphans(older_than)
 
 
+async def record_tool_result(
+    session_id,
+    tool_call_id: str,
+    content,
+    *,
+    parent_message_id=None,
+    conversation_id=None,
+    name: str | None = None,
+    metadata: dict | None = None,
+):
+    """Persist a ``role=tool`` row that answers a previous tool call.
+
+    Use this from inside your tool-execution loop to record what the tool
+    returned, so the conversation can be replayed end-to-end. One call per
+    tool result; quackmem does not auto-detect them.
+
+    Args:
+        session_id: Session UUID (or any value coercible to UUID).
+        tool_call_id: The id of the call this row answers — must match an
+            entry in the assistant message's ``tool_calls`` array. Used both
+            as the linkage key and to look up ``parent_message_id`` when not
+            supplied.
+        content: The tool's output. Either a string or a list-of-dicts (for
+            structured returns).
+        parent_message_id: The assistant message that issued the call. If
+            omitted, quackmem looks up the most recent assistant row in this
+            session whose ``tool_calls`` array contains ``tool_call_id``.
+            If the lookup misses, the row is still inserted with a NULL
+            link rather than failing.
+        conversation_id: If omitted, derived from the session row.
+        name: Optional tool/function name. Stored under ``metadata.tool_name``
+            for convenience.
+        metadata: Free-form metadata merged onto the row.
+
+    Returns:
+        UUID of the inserted message.
+
+    Raises:
+        TrackerConfigError: If ``init_tracker`` has not been called.
+        SQLAlchemyError: On unrecoverable DB errors. Unlike the decorator,
+            this helper does not silently swallow failures — the caller
+            took deliberate action and should see the error.
+    """
+    from uuid import UUID
+
+    from quackmem.backend import get_backend
+
+    if not isinstance(session_id, UUID):
+        session_id = UUID(str(session_id))
+
+    backend = get_backend()
+
+    if parent_message_id is None:
+        parent_message_id = await backend.find_assistant_for_tool_call(
+            session_id, tool_call_id
+        )
+    elif not isinstance(parent_message_id, UUID):
+        parent_message_id = UUID(str(parent_message_id))
+
+    if conversation_id is None:
+        conversation_id = await backend.get_conversation_id(session_id)
+        if conversation_id is None:
+            raise ValueError(
+                f"Unknown session_id={session_id}. Call the persona/decorator at "
+                "least once before recording tool results, or pass conversation_id "
+                "explicitly."
+            )
+    elif not isinstance(conversation_id, UUID):
+        conversation_id = UUID(str(conversation_id))
+
+    merged_meta = dict(metadata or {})
+    if name is not None:
+        merged_meta.setdefault("tool_name", name)
+
+    return await backend.insert_tool_result(
+        session_id=session_id,
+        conversation_id=conversation_id,
+        tool_call_id=tool_call_id,
+        content=content,
+        parent_message_id=parent_message_id,
+        metadata=merged_meta,
+    )
+
+
 async def shutdown_tracker(*, drain_timeout: float | None = 10) -> int:
     """Drain pending tracking writes and close the connection pool.
 
@@ -145,6 +230,7 @@ async def shutdown_tracker(*, drain_timeout: float | None = 10) -> int:
 
 
 __all__ = [
+    "ToolCall",
     "TrackerConfig",
     "TrackerConfigError",
     "MetadataValidationError",
@@ -152,6 +238,7 @@ __all__ = [
     "verify_tracker",
     "reap_orphans",
     "read_messages",
+    "record_tool_result",
     "shutdown_tracker",
     "register_metadata",
     "reset_metadata",

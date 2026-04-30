@@ -36,7 +36,14 @@ class GenericWrapper(BaseWrapper):
         if isinstance(result, dict):
             raw = result.get("content", result.get("output", str(result)))
             content = raw if isinstance(raw, (str, list)) else str(raw)
-            return CanonicalMessage(role=MessageRole.assistant, content=content)
+            tool_calls = result.get("tool_calls")
+            if tool_calls is not None and not isinstance(tool_calls, list):
+                tool_calls = None
+            return CanonicalMessage(
+                role=MessageRole.assistant,
+                content=content,
+                tool_calls=tool_calls,
+            )
         return CanonicalMessage(role=MessageRole.assistant, content=str(result))
 
     def extract_token_count(self, result: Any) -> int | None:

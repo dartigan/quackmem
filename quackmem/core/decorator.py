@@ -242,6 +242,7 @@ async def _post_write(
     await backend.finalize_message(MessageFinalization(
         message_id=reserved_message_id,
         content=response.content,
+        tool_calls=response.tool_calls,
         token_count=token_count,
         status=MessageStatus.completed,
     ))
