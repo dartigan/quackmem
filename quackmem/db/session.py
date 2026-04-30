@@ -11,10 +11,24 @@ from quackmem.core.exceptions import TrackerConfigError
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker | None = None
+_config: TrackerConfig | None = None
+
+
+def get_config() -> TrackerConfig:
+    """Return the active TrackerConfig.
+
+    Raises:
+        TrackerConfigError: If ``init_engine`` / ``init_tracker`` has not
+            been called.
+    """
+    if _config is None:
+        raise TrackerConfigError("Config not initialized. Call init_tracker() first.")
+    return _config
 
 
 def init_engine(config: TrackerConfig) -> None:
-    global _engine, _session_factory
+    global _engine, _session_factory, _config
+    _config = config
     _engine = create_async_engine(
         config.database_url,
         pool_size=config.pool_size,
@@ -64,11 +78,12 @@ async def dispose_engine() -> None:
     Safe to call when the engine has not been initialised — it becomes a
     no-op rather than raising.
     """
-    global _engine, _session_factory
+    global _engine, _session_factory, _config
     if _engine is not None:
         await _engine.dispose()
     _engine = None
     _session_factory = None
+    _config = None
 
 
 @contextlib.asynccontextmanager

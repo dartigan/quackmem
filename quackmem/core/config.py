@@ -17,6 +17,7 @@ class TrackerConfig(BaseSettings):
     - ``QUACKMEM_POOL_SIZE``
     - ``QUACKMEM_MAX_OVERFLOW``
     - ``QUACKMEM_ECHO``
+    - ``QUACKMEM_DEFAULT_READ_LIMIT``
 
     Direct kwargs always win over environment variables.
     """
@@ -34,6 +35,7 @@ class TrackerConfig(BaseSettings):
     pool_size: int = 5
     max_overflow: int = 10
     echo: bool = False
+    default_read_limit: int = 10
 
     @field_validator("database_url")
     @classmethod
@@ -69,4 +71,11 @@ class TrackerConfig(BaseSettings):
     def validate_max_overflow(cls, v: int) -> int:
         if v < 0:
             raise ValueError("max_overflow must be non-negative")
+        return v
+
+    @field_validator("default_read_limit")
+    @classmethod
+    def validate_default_read_limit(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("default_read_limit must be at least 1")
         return v
