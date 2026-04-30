@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import timedelta  # noqa: F401  (used in annotation strings)
+from typing import TYPE_CHECKING
 
 from quackmem.core.config import TrackerConfig
 from quackmem.core.registry import register_metadata, reset_metadata
@@ -11,6 +12,10 @@ from quackmem.core.logging import configure_logging
 from quackmem.core.tasks import wait_pending_writes
 from quackmem.db.session import dispose_engine
 from quackmem.migrations.runner import upgrade_db, downgrade_db, generate_migration
+
+if TYPE_CHECKING:
+    from quackmem.schema.enums import MessageStatus
+    from quackmem.schema.models import TrackedMessage
 
 
 def init_tracker(config: TrackerConfig) -> None:

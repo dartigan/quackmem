@@ -20,7 +20,6 @@ from quackmem import (
     init_tracker,
     upgrade_db,
     register_metadata,
-    get_tracking_context,
 )
 from quackmem.wrappers import openai_agents_mem
 
@@ -77,7 +76,6 @@ async def agent(req: AgentRequest):
         return MockRunResult(final_output=response_text)
 
     result = await run_tracked_agent(req.user_message)
-    ctx = get_tracking_context()
 
     return {
         "response": result.final_output,

@@ -270,7 +270,7 @@ class PostgresBackend:
                 )
             )
             await db.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]
 
     async def update_status(self, message_id: UUID, status: MessageStatus) -> None:
         """Update only the status column of a message row."""

@@ -22,7 +22,6 @@ from quackmem import (
     init_tracker,
     upgrade_db,
     register_metadata,
-    get_tracking_context,
     shutdown_tracker,
     verify_tracker,
 )
@@ -97,7 +96,6 @@ async def chat(req: ChatRequest):
 
     state = {"messages": [{"role": "user", "content": req.user_message}]}
     result = await tracked_node(state)
-    ctx = get_tracking_context()
 
     return {
         "response": result["messages"][-1]["content"],
