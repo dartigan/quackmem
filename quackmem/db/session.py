@@ -54,6 +54,23 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
+async def dispose_engine() -> None:
+    """Close the connection pool and clear the global engine.
+
+    Call from your ASGI shutdown handler (after ``wait_pending_writes``) to
+    release Postgres connections cleanly. Also useful in tests and short-lived
+    workers where leaving a pool dangling delays process exit.
+
+    Safe to call when the engine has not been initialised — it becomes a
+    no-op rather than raising.
+    """
+    global _engine, _session_factory
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _session_factory = None
+
+
 @contextlib.asynccontextmanager
 async def get_session() -> AsyncIterator[AsyncSession]:
     if _session_factory is None:

@@ -1,24 +1,45 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from quackmem.core.exceptions import TrackerConfigError
+
+logger = logging.getLogger(__name__)
+
 config = context.config
+# Only configure logging from the ini if it actually contains logging sections.
+# The bundled alembic.ini deliberately omits them so quackmem doesn't fight the
+# host application's logging setup.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    try:
+        fileConfig(config.config_file_name)
+    except KeyError:
+        pass
 
 # Import the library's metadata so autogenerate can diff against it.
 # build_tables() must be called before autogenerate runs so the Table
 # objects are registered on the metadata object.
+target_metadata: Any = None
 try:
-    from quackmem.db.tables import metadata as target_metadata, build_tables
+    from quackmem.db.tables import metadata as target_metadata, build_tables  # noqa: F811
     # Build tables with default schema so metadata is populated
     build_tables(schema=None, prefix="")
-except Exception:
+except (ImportError, RuntimeError) as exc:
+    # ImportError: quackmem isn't installed (autogenerate from outside the
+    # package). RuntimeError: build_tables called twice with conflicting args.
+    # In either case autogenerate will compare against an empty metadata,
+    # which is benign — but log loudly so the operator notices.
+    logger.warning(
+        "quackmem table metadata unavailable; autogenerate will be a no-op",
+        exc_info=exc,
+    )
     target_metadata = None
 
 
@@ -54,7 +75,9 @@ def get_url() -> str:
 
         engine = get_engine()
         return str(engine.url)
-    except Exception:
+    except TrackerConfigError:
+        # Engine simply hasn't been initialised yet — fall through to the
+        # final RuntimeError so the caller sees a clear message.
         pass
 
     raise RuntimeError(
