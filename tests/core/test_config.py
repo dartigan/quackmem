@@ -158,3 +158,65 @@ class TestTrackerConfigFrozen:
         )
         with pytest.raises(ValidationError):
             config.new_field = "value"
+
+
+class TestTrackerConfigEnvVars:
+    """Verify QUACKMEM_* env vars populate TrackerConfig fields."""
+
+    def test_database_url_loaded_from_env(self, monkeypatch):
+        monkeypatch.setenv(
+            "QUACKMEM_DATABASE_URL",
+            "postgresql+asyncpg://envuser:envpass@envhost/envdb",
+        )
+        config = TrackerConfig()
+        assert config.database_url == "postgresql+asyncpg://envuser:envpass@envhost/envdb"
+
+    def test_all_fields_loaded_from_env(self, monkeypatch):
+        monkeypatch.setenv("QUACKMEM_DATABASE_URL", "postgresql://u:p@h/d")
+        monkeypatch.setenv("QUACKMEM_SCHEMA_NAME", "telemetry")
+        monkeypatch.setenv("QUACKMEM_TABLE_PREFIX", "qm_")
+        monkeypatch.setenv("QUACKMEM_POOL_SIZE", "20")
+        monkeypatch.setenv("QUACKMEM_MAX_OVERFLOW", "30")
+        monkeypatch.setenv("QUACKMEM_ECHO", "true")
+
+        config = TrackerConfig()
+        assert config.database_url == "postgresql+asyncpg://u:p@h/d"
+        assert config.schema_name == "telemetry"
+        assert config.table_prefix == "qm_"
+        assert config.pool_size == 20
+        assert config.max_overflow == 30
+        assert config.echo is True
+
+    def test_kwargs_override_env_vars(self, monkeypatch):
+        """Direct kwargs win over environment variables."""
+        monkeypatch.setenv(
+            "QUACKMEM_DATABASE_URL",
+            "postgresql+asyncpg://envuser:p@envhost/envdb",
+        )
+        monkeypatch.setenv("QUACKMEM_POOL_SIZE", "99")
+        config = TrackerConfig(
+            database_url="postgresql+asyncpg://argval:p@h/d",
+            pool_size=3,
+        )
+        assert "argval" in config.database_url
+        assert config.pool_size == 3
+
+    def test_missing_database_url_raises(self, monkeypatch):
+        """No env var, no kwarg → ValidationError on the required field."""
+        monkeypatch.delenv("QUACKMEM_DATABASE_URL", raising=False)
+        with pytest.raises(ValidationError):
+            TrackerConfig()
+
+    def test_env_var_validation_runs(self, monkeypatch):
+        """Validators (e.g. URL must be Postgres) run on env-loaded values."""
+        monkeypatch.setenv("QUACKMEM_DATABASE_URL", "mysql://u:p@h/d")
+        with pytest.raises(ValidationError) as exc_info:
+            TrackerConfig()
+        assert "must be a PostgreSQL URL" in str(exc_info.value)
+
+    def test_env_var_case_insensitive(self, monkeypatch):
+        """Lower-case QUACKMEM_database_url also works (case_sensitive=False)."""
+        monkeypatch.delenv("QUACKMEM_DATABASE_URL", raising=False)
+        monkeypatch.setenv("quackmem_database_url", "postgresql://u:p@h/d")
+        config = TrackerConfig()
+        assert config.database_url == "postgresql+asyncpg://u:p@h/d"

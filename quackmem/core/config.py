@@ -1,10 +1,32 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class TrackerConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class TrackerConfig(BaseSettings):
+    """Runtime configuration for quackmem.
+
+    Fields can be supplied directly (``TrackerConfig(database_url=...)``) or
+    populated from environment variables. Variables use the ``QUACKMEM_``
+    prefix:
+
+    - ``QUACKMEM_DATABASE_URL`` (required when not passed explicitly)
+    - ``QUACKMEM_SCHEMA_NAME``
+    - ``QUACKMEM_TABLE_PREFIX``
+    - ``QUACKMEM_POOL_SIZE``
+    - ``QUACKMEM_MAX_OVERFLOW``
+    - ``QUACKMEM_ECHO``
+
+    Direct kwargs always win over environment variables.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="QUACKMEM_",
+        frozen=True,
+        extra="ignore",
+        case_sensitive=False,
+    )
 
     database_url: str
     schema_name: str = "public"
